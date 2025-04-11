@@ -1,0 +1,17 @@
+[Unit]
+Description=Border0 WiFi Gateway Management Service
+
+[Service]
+StartLimitInterval=5
+StartLimitBurst=10
+ExecStart=/root/b0pi_aarm64.bin
+
+WorkingDirectory=/root
+
+Restart=always
+
+RestartSec=10
+EnvironmentFile=-/etc/sysconfig/border0-gw
+
+[Install]
+WantedBy=multi-user.target
