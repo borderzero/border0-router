@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Home</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        /* Page-specific styles can still be added here */
+        .nav-links {
+            margin-top: 20px;
+        }
+
+        .nav-links a {
+            display: inline-block;
+            margin-right: 15px;
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+
+        .nav-links a:hover {
+            background-color: #45a049;
+        }
+
+        .additional-info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f0f8ff;
+            border-radius: 5px;
+            border-left: 4px solid #2196F3;
+        }
+    </style>
+</head>
+
+<body>
+
+    {{if .isGatewayHost}}
+    {{template "menu.html"}}
+    <div class="content">
+        {{if .deviceStateExists}}
+        <h1>Congratulations!</h1>
+        <h3>Your Border0 Gateway is fully configured and operational</h3>
+        <h4>you can check the status of your gateway <a href="/status">here</a></h4>
+
+        <div class="additional-info">
+            <h4>Exit Node Selection</h4>
+            <p><strong>Current Exit Node:</strong> {{.currentExitNode}}</p>
+            <p><strong>Current Public IP:</strong> {{.publicIP}}</p>
+            <p><strong>Location:</strong> {{.location}}</p>
+            <select id="exitNodeSelect" class="form-control">
+                {{range .exitNodes}}
+                    <option value="{{.}}" {{if eq . $.currentExitNode}}selected{{end}}>{{.}}</option>
+                {{end}}
+            </select>
+            <div style="margin-top: 10px;">
+                <button onclick="setExitNode()" class="login-button" style="margin-right: 10px;">Set Exit Node</button>
+                <button onclick="unsetExitNode()" class="login-button" style="background-color: #f0f0f0; color: #333;">Unset Exit Node</button>
+            </div>
+            <div id="exitNodeStatus" style="margin-top: 10px;"></div>
+        </div>
+
+        <script>
+        function setExitNode() {
+            const node = document.getElementById('exitNodeSelect').value;
+            const status = document.getElementById('exitNodeStatus');
+            
+            fetch('/api/exitnode', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `node=${encodeURIComponent(node)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    status.innerHTML = `<span style="color: red">Error: ${data.error}</span>`;
+                } else {
+                    status.innerHTML = `<span style="color: green">Exit node changed successfully</span>`;
+                    setTimeout(() => { window.location.reload(); }, 1000);
+                }
+            })
+            .catch(error => {
+                status.innerHTML = `<span style="color: red">Error: ${error}</span>`;
+            });
+        }
+        
+        function unsetExitNode() {
+            const status = document.getElementById('exitNodeStatus');
+            
+            fetch('/api/exitnode/unset', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    status.innerHTML = `<span style="color: red">Error: ${data.error}</span>`;
+                } else {
+                    status.innerHTML = `<span style="color: green">Exit node unset successfully</span>`;
+                    setTimeout(() => { window.location.reload(); }, 1000);
+                }
+            })
+            .catch(error => {
+                status.innerHTML = `<span style="color: red">Error: ${error}</span>`;
+            });
+        }
+        </script>
+        {{else}}
+        <h3>Border0 Gateway Access</h3>
+        <p>You've successfully connected via the gateway.border0 hostname.</p>
+        <h3>Final step <a href="/login">Login to Border0</a></h3>
+        <ol>
+            <li>Configured your WiFi settings :thumbsup:</li>
+            <li>Connect your devices to the secure network :thumbsup:</li>
+        </ol>
+        {{end}}
+    </div>
+    {{ else}}
+
+    {{if .provisioned}}
+    {{template "basic-menu.html"}}
+    <div class="content">
+        <h1>Welcome!</h1>
+        <h4>This is Border0 WiFi Gateway Configuration </h4>
+        <h2>Please go to </u><b>http://gateway.border0</b></u> in your real browser to
+            continue the setup.</h2>
+        <p style="color: gray; font-size: small;">this browser is not supported for the setup, please use a real
+            browser.</p>
+
+
+        {{else}}
+        {{template "basic-menu.html"}}
+
+        <div class="content">
+            <h1>Welcome!</h1>
+            <h4>This is Border0 WiFi Gateway Initial configuration page</h4>
+            <h3>Please update the <b><a href="/config">configuration</a></b> to secure the wifi before proceeding.</h3>
+        </div>
+
+        {{end}}
+        {{end}}
+        <!-- Start Generation Here -->
+        {{if .provisioned}}
+
+        <div style="position: fixed; bottom: 20px; right: 20px;">
+            <form method="post" action="/factory_reset" style="display: inline;">
+                <button type="submit" class="login-button" style="background-color: #ffeae8;">Factory Reset</button>
+            </form>
+        </div>
+        {{end}}
+        <!-- End Generation Here -->
+</body>
+
+</html>
