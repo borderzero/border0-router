@@ -35,3 +35,10 @@ __pycache__/
 # any bin directory and content
 bin/
 **/*bin
+
+iso/
+build/
+mnt/
+iso/
+
+
