@@ -32,7 +32,8 @@ type Token struct {
 
 var tokenFilePath = "./files/token.json"
 var internetAccessFilePath = "./files/internet_access.on"
-var defaultHostapdConfigPath = "./files/hostapd.conf.default"
+var defaultHostapdConfigPath = "/etc/hostapd/hostapd.conf.default"
+var templateHostapdConfigPath = "./templates/hostapd.conf"
 var hostapdConfigPath = "/etc/hostapd/hostapd.conf"
 var hostapdProvisionedPath = "./files/hostapd.provisioned"
 var deviceStateFilePath = "/root/.border0/device.state.yaml"
@@ -163,7 +164,7 @@ func checkInternetStatus() (bool, error) {
 // applyConfigToHostapd applies the configuration to the hostapd.conf file
 func applyConfigToHostapd(config Config) error {
 	// Read the hostapd template
-	template, err := os.ReadFile("templates/hostapd.conf")
+	template, err := os.ReadFile(templateHostapdConfigPath)
 	if err != nil {
 		return err
 	}
@@ -174,7 +175,7 @@ func applyConfigToHostapd(config Config) error {
 	content = strings.Replace(content, "${psk}", config.PSK, -1)
 
 	// Write to the hostapd configuration file
-	err = os.WriteFile("/etc/hostapd/hostapd.conf", []byte(content), 0644)
+	err = os.WriteFile(hostapdConfigPath, []byte(content), 0644)
 	if err != nil {
 		return err
 	}
@@ -191,8 +192,13 @@ func applyConfigToHostapd(config Config) error {
 
 // rebootSystem executes the reboot command
 func rebootSystem() error {
-	cmd := exec.Command("echo", "reboot")
+	cmd := exec.Command("reboot")
 
+	return cmd.Run()
+}
+
+func rebootWifi() error {
+	cmd := exec.Command("systemctl", "restart", "hostapd")
 	return cmd.Run()
 }
 
@@ -618,8 +624,8 @@ func main() {
 		go func() {
 			// Wait a moment to allow the response to be sent
 			time.Sleep(1 * time.Second)
-			if err := rebootSystem(); err != nil {
-				log.Printf("Failed to reboot: %v", err)
+			if err := rebootWifi(); err != nil {
+				log.Printf("Failed to reboot wifi: %v", err)
 			}
 		}()
 
