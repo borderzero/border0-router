@@ -37,7 +37,6 @@ bin/
 **/*bin
 
 iso/
-build/
 mnt/
 iso/
 
