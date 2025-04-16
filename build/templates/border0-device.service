@@ -1,0 +1,18 @@
+[Unit]
+Description=Border0 Device Management Service
+ConditionFileIsExecutable=/usr/local/bin/border0
+
+
+[Service]
+StartLimitInterval=10
+StartLimitBurst=10
+ExecStart=/usr/local/bin/border0 "node" "start" "--home-dir" "/root" "--start-vpn"
+
+
+Restart=always
+
+RestartSec=120
+EnvironmentFile=-/etc/sysconfig/border0-device
+
+[Install]
+WantedBy=multi-user.target
