@@ -206,8 +206,8 @@ mkdir -p /root/.ssh
 echo "# $(date)" >> /root/.ssh/authorized_keys
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFWzhiL+gabtc8WyJILjDei4KX8uXD0Y1wPAdt8/tCaB greg@xps15" >> /root/.ssh/authorized_keys
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILf5v3Md3f+pnNQ96XZtBvdok44Ej7UuzPTB8XrhXtk2 greg@XPS15" >> /root/.ssh/authorized_keys
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDmuPYG2E186hP4tKgqW6cmOOtr3SqkIXKj2PJSjGUd+ greg+rnd@XPS15" >> /root/.ssh/authorized_keys
 
-# Additional custom modifications can be placed here.
 EOF
 
 # Replace placeholders with actual package lists.

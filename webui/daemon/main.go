@@ -32,7 +32,7 @@ type Token struct {
 
 var tokenFilePath = "./files/token.json"
 var internetAccessFilePath = "./files/internet_access.on"
-var defaultHostapdConfigPath = "/etc/hostapd/hostapd.conf.default"
+var defaultHostapdConfigPath = "/opt/border0/templates/hostapd.conf.default"
 var templateHostapdConfigPath = "./templates/hostapd.conf"
 var hostapdConfigPath = "/etc/hostapd/hostapd.conf"
 var hostapdProvisionedPath = "./files/hostapd.provisioned"
@@ -193,12 +193,11 @@ func applyConfigToHostapd(config Config) error {
 // rebootSystem executes the reboot command
 func rebootSystem() error {
 	cmd := exec.Command("reboot")
-
 	return cmd.Run()
 }
 
 func rebootWifi() error {
-	cmd := exec.Command("systemctl", "restart", "hostapd")
+	cmd := exec.Command("reboot")
 	return cmd.Run()
 }
 
