@@ -1,37 +1,61 @@
-<div class="menu-bar">
+<div class="side-panel">
     <div class="logo">Border0 Gateway</div>
     <nav>
         <a href="/" class="menu-item">Home</a>
-        <a href="/config" class="menu-item">WiFi Configuration</a>
-        <!-- <a href="/status" class="menu-item">Status</a> -->
-        <a href="/login" class="menu-item">Border0 Login</a>
+        <a href="/login" class="menu-item">Border0 Account</a>
+        <a href="/config" class="menu-item">WiFi Settings</a>
+        <a href="/status" class="menu-item">Status</a>
     </nav>
     <style>
-        .menu-bar {
+        /* Side panel menu styling */
+        .side-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 220px;
+            height: 100%;
             background-color: #333;
             color: white;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
-            padding: 10px 20px;
-            margin-bottom: 20px;
+            padding: 20px 10px;
         }
         .logo {
             font-size: 1.5em;
             font-weight: bold;
+            margin-bottom: 30px;
         }
         nav {
             display: flex;
-            gap: 15px;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
         }
         .menu-item {
+            display: block;
+            width: 100%;
+            text-align: center;
             color: white;
             text-decoration: none;
-            padding: 5px 10px;
+            padding: 8px 0;
             border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
         }
         .menu-item:hover {
             background-color: #555;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            transform: translateX(2px);
+        }
+        .menu-item:active {
+            background-color: #777;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+            transform: translateX(-2px);
+        }
+        /* Shift main content to accommodate side panel */
+        .content {
+            margin-left: 240px;
         }
     </style>
 </div> 

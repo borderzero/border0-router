@@ -6,11 +6,7 @@
   <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-  {{if .provisioned}}{{if .isGatewayHost}}
     {{template "menu.html"}}
-  {{else}}
-    {{template "basic-menu.html"}}
-  {{end}}{{end}}
   
   <div class="content">
     <h1>Edit Configuration</h1>

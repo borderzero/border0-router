@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -142,25 +141,6 @@ func saveToken(token Token) error {
 	return encoder.Encode(token)
 }
 
-// checkInternetStatus returns true if internet access is available (rules not present)
-func checkInternetStatus() (bool, error) {
-	cmd := exec.Command("iptables", "-L", "PREROUTING", "-t", "nat", "-n")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return false, err
-	}
-
-	output := out.String()
-	// Check if the redirect rules are present
-	hasRedirectPort80 := strings.Contains(output, "tcp dpt:80 redir ports 8080")
-	hasRedirectPort443 := strings.Contains(output, "tcp dpt:443 redir ports 8080")
-
-	// If rules are present, internet is OFF
-	return !(hasRedirectPort80 && hasRedirectPort443), nil
-}
-
 // applyConfigToHostapd applies the configuration to the hostapd.conf file
 func applyConfigToHostapd(config Config) error {
 	// Read the hostapd template
@@ -260,8 +240,6 @@ func factoryReset() error {
 		return err
 	}
 
-	insertIptablesRules()
-
 	return nil
 }
 func checkAndInsertPostRoutingRules() error {
@@ -297,36 +275,6 @@ func checkAndInsertPostRoutingRules() error {
 	return nil
 }
 
-// checkIptablesRules checks for existing iptables redirect rules
-func checkIptablesRules() (bool, error) {
-	cmd := exec.Command("iptables", "-L", "PREROUTING", "-t", "nat", "-n")
-	output, err := cmd.Output()
-	if err != nil {
-		return false, err
-	}
-
-	rules := string(output)
-	hasRedirectPort80 := strings.Contains(rules, "tcp dpt:80 redir ports 8080")
-	hasRedirectPort443 := strings.Contains(rules, "tcp dpt:443 redir ports 8080")
-
-	return hasRedirectPort80 && hasRedirectPort443, nil
-}
-
-func insertIptablesRules() error {
-	// Insert iptables rules
-	_, err := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-i", "wlan0", "-p", "tcp", "--dport", "443", "-j", "REDIRECT", "--to-ports", "8080").Output()
-	log.Printf("Added iptables rule for port 443")
-	if err != nil {
-		log.Printf("Error adding iptables rule for port 443: %v", err)
-	}
-	_, err = exec.Command("iptables", "-t", "nat", "-A", "PREROUTING", "-i", "wlan0", "-p", "tcp", "--dport", "80", "-j", "REDIRECT", "--to-ports", "8080").Output()
-	log.Printf("Added iptables rule for port 80")
-	if err != nil {
-		log.Printf("Error adding iptables rule for port 80: %v", err)
-	}
-
-	return nil
-}
 func enableIPv4Forwarding() error {
 	if err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").Run(); err != nil {
 		return fmt.Errorf("failed to enable IPv4 forwarding: %v", err)
@@ -422,17 +370,6 @@ func main() {
 	// Check if IPv4 forwarding is enabled
 	checkAndInsertPostRoutingRules()
 	enableIPv4Forwarding()
-	if _, err := os.Stat(internetAccessFilePath); os.IsNotExist(err) {
-		hasRules, err := checkIptablesRules()
-		if err != nil {
-			log.Printf("Error checking iptables rules: %v", err)
-			return
-		}
-
-		if !hasRules {
-			insertIptablesRules()
-		}
-	}
 
 	// Create a Gin router with default middleware (logger, recovery)
 	router := gin.Default()
@@ -443,55 +380,18 @@ func main() {
 	// Tell Gin where our HTML templates are located
 	router.LoadHTMLGlob("templates/*")
 
-	// Captive portal detection endpoints
-	router.GET("/generate_204", func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/")
-	})
-
-	router.GET("/gen_204", func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/")
-	})
-
 	// GET endpoint for the login page
 	router.GET("/login", func(c *gin.Context) {
-		internetStatus, err := checkInternetStatus()
-		statusText := "OFF"
-		if internetStatus {
-			statusText = "ON"
-		}
 
 		host := c.Request.Host
 		isGatewayHost := strings.HasPrefix(host, "gateway.border0")
 
 		data := gin.H{
-			"provisioned":    isProvisioned(),
-			"internetStatus": statusText,
-			"isGatewayHost":  isGatewayHost,
-		}
-
-		if err != nil {
-			data["error"] = "Error checking internet status: " + err.Error()
+			"provisioned":   isProvisioned(),
+			"isGatewayHost": isGatewayHost,
 		}
 
 		c.HTML(http.StatusOK, "login.html", data)
-	})
-
-	// POST endpoint for internet access
-	router.POST("/internet_access", func(c *gin.Context) {
-		cmd := exec.Command("iptables", "-t", "nat", "-F", "PREROUTING")
-		err := os.WriteFile(internetAccessFilePath, []byte("Internet access enabled"), 0644)
-		if err != nil {
-			log.Printf("Error creating internet access signal file: %v", err)
-			c.String(http.StatusInternalServerError, "Failed to create signal file")
-			return
-		}
-		err = cmd.Run()
-		if err != nil {
-			log.Printf("Error executing iptables command: %v", err)
-			c.String(http.StatusInternalServerError, "Failed to enable internet access")
-			return
-		}
-		c.Redirect(http.StatusFound, "/login")
 	})
 
 	// GET endpoint for the root path to load home.html
@@ -591,107 +491,6 @@ func main() {
 
 		// Redirect back to the config page after a successful update
 		c.Redirect(http.StatusFound, "/config")
-	})
-
-	// POST endpoint for applying configuration and rebooting
-	router.POST("/apply-config", func(c *gin.Context) {
-		var config Config
-		if err := c.BindJSON(&config); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-			return
-		}
-
-		// Validate PSK length
-		if len(config.PSK) < 8 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "PSK must be at least 8 characters long"})
-			return
-		}
-
-		// Save the configuration to config.json
-		if err := saveConfig(config); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
-			return
-		}
-
-		// Apply the configuration to hostapd.conf
-		if err := applyConfigToHostapd(config); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration to hostapd"})
-			return
-		}
-
-		// Trigger system reboot
-		go func() {
-			// Wait a moment to allow the response to be sent
-			time.Sleep(1 * time.Second)
-			if err := rebootWifi(); err != nil {
-				log.Printf("Failed to reboot wifi: %v", err)
-			}
-		}()
-
-		c.JSON(http.StatusOK, gin.H{"message": "Configuration applied, system will reboot"})
-	})
-
-	// POST endpoint for saving the authentication token
-	router.POST("/save_token", func(c *gin.Context) {
-		// Get the token from the form
-		authToken := c.PostForm("authToken")
-
-		// Log the received token for debugging
-		log.Printf("Received token with length: %d)", len(authToken))
-
-		// Validate the token (basic validation)
-		if len(authToken) < 10 {
-			log.Printf("Token validation failed: token too short (%d characters)", len(authToken))
-			c.HTML(http.StatusBadRequest, "login.html", gin.H{
-				"provisioned":    isProvisioned(),
-				"internetStatus": "ON",
-				"error":          "Token is too short. Please provide a valid token.",
-			})
-			return
-		}
-
-		// Create token structure
-		token := Token{
-			AuthToken: authToken,
-		}
-
-		// Save the token
-		if err := saveToken(token); err != nil {
-			log.Printf("Error saving token: %v", err)
-			c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-				"provisioned":    isProvisioned(),
-				"internetStatus": "ON",
-				"error":          "Error saving token: " + err.Error(),
-			})
-			return
-		}
-
-		if err := os.MkdirAll("/etc/sysconfig", os.ModePerm); err != nil {
-			log.Printf("Error creating /etc/sysconfig directory: %v", err)
-			c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-				"provisioned":    isProvisioned(),
-				"internetStatus": "ON",
-				"error":          "Error creating configuration directory.",
-			})
-			return
-		}
-
-		tokenFilePath := "/etc/sysconfig/border0-device"
-		if err := os.WriteFile(tokenFilePath, []byte("BORDER0_TOKEN=\""+authToken+"\""), 0644); err != nil {
-			log.Printf("Error saving token to %s: %v", tokenFilePath, err)
-			c.HTML(http.StatusInternalServerError, "login.html", gin.H{
-				"provisioned":    isProvisioned(),
-				"internetStatus": "ON",
-				"error":          "Error saving token to configuration file.",
-			})
-			return
-		}
-
-		// log.Printf("Token saved successfully")
-		enableBorder0DeviceService()
-		startBorder0DeviceService()
-		// Redirect to the home page with success message
-		c.Redirect(http.StatusFound, "/status")
 	})
 
 	// POST endpoint for factory reset
