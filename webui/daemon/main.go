@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -382,7 +384,6 @@ func main() {
 
 	// GET endpoint for the login page
 	router.GET("/login", func(c *gin.Context) {
-
 		host := c.Request.Host
 		isGatewayHost := strings.HasPrefix(host, "gateway.border0")
 
@@ -392,6 +393,94 @@ func main() {
 		}
 
 		c.HTML(http.StatusOK, "login.html", data)
+	})
+	// Add this new endpoint for organization login
+	router.POST("/org_login", func(c *gin.Context) {
+		org := c.PostForm("org")
+		loginURL := ""
+
+		if org != "" {
+			cmd := exec.Command("border0", "client", "login", "--org", org)
+			cmd.Env = append(os.Environ(), "HOME=/root")
+
+			// Create pipes for stdout and stderr
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				log.Printf("Error creating stdout pipe: %v", err)
+				c.HTML(http.StatusInternalServerError, "login.html", gin.H{
+					"error": "Failed to start login process: " + err.Error(),
+				})
+				return
+			}
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				log.Printf("Error creating stderr pipe: %v", err)
+				c.HTML(http.StatusInternalServerError, "login.html", gin.H{
+					"error": "Failed to start login process: " + err.Error(),
+				})
+				return
+			}
+
+			// Start the command
+			if err := cmd.Start(); err != nil {
+				log.Printf("Error starting command: %v", err)
+				c.HTML(http.StatusInternalServerError, "login.html", gin.H{
+					"error": "Failed to start login process: " + err.Error(),
+				})
+				return
+			}
+
+			// Create channels for communication
+			foundURL := make(chan string, 1)
+			done := make(chan bool, 1)
+
+			// Scan output in a goroutine
+			go func() {
+				// Combine stdout and stderr
+				scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+				for scanner.Scan() {
+					line := strings.TrimSpace(scanner.Text())
+					log.Printf("Command output: %s", line)
+					if strings.HasPrefix(line, "https://") {
+						foundURL <- line
+						return
+					}
+				}
+				if err := scanner.Err(); err != nil {
+					log.Printf("Error scanning output: %v", err)
+				}
+				done <- true
+			}()
+
+			// Wait for either the URL to be found or a timeout
+			select {
+			case url := <-foundURL:
+				loginURL = url
+				log.Printf("Found login URL: %s", url)
+			case <-done:
+				log.Printf("Command completed without finding URL")
+			case <-time.After(10 * time.Second):
+				log.Printf("Timeout waiting for URL")
+			}
+
+			// Let the process continue running in the background
+			go func() {
+				if err := cmd.Wait(); err != nil {
+					log.Printf("Background process exited with error: %v", err)
+				} else {
+					log.Printf("Background process completed successfully")
+				}
+			}()
+		}
+
+		host := c.Request.Host
+		isGatewayHost := strings.HasPrefix(host, "gateway.border0")
+
+		c.HTML(http.StatusOK, "login.html", gin.H{
+			"provisioned":   isProvisioned(),
+			"isGatewayHost": isGatewayHost,
+			"LoginURL":      loginURL,
+		})
 	})
 
 	// GET endpoint for the root path to load home.html

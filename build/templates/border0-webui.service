@@ -12,6 +12,7 @@ Restart=always
 
 RestartSec=10
 EnvironmentFile=-/etc/sysconfig/border0-gw
+Environment="HOME=/root"
 
 [Install]
 WantedBy=multi-user.target

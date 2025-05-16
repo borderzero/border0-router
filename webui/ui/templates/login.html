@@ -78,17 +78,25 @@
         <div class="login-container">
             <h1>Border0 Login and Authorization</h1>
 
-
-
-            <a href="https://portal.border0.com/iam?tab=service-accounts" target="_blank"
-                class="login-button border0-button">Create Service Account</a>
-            <form method="post" action="/save_token">
-                <div class="input-group">
-                    <label for="authToken">Authentication Token:</label><br>
-                    <input type="text" id="authToken" name="authToken" placeholder="Enter your token" required>
+            <div class="login-options">
+                <h2>Login to your Organization</h2>
+                <form method="post" action="/org_login">
+                    <div class="input-group">
+                        <label for="org">Organization Name:</label><br>
+                        <input type="text" id="org" name="org" placeholder="Enter your organization name" required>
+                    </div>
+                    <button type="submit" class="login-button">Login</button>
+                </form>
+                
+                {{if .LoginURL}}
+                <div class="login-url-container">
+                    <h3>If a new browser window did not open, click the link below to complete login:</h3>
+                    <a href="{{.LoginURL}}" target="_blank" class="login-link">{{.LoginURL}}</a>
                 </div>
-                <button type="submit" class="login-button">Save Token</button>
-            </form>
+                {{end}}
+                
+
+            </div>
         </div>
     </div>
 </body>
