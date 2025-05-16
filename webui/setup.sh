@@ -40,6 +40,15 @@ if [ -n "$css_path" ]; then
 else
   echo "Failed to detect Border0 CSS URL"
 fi
+echo "Downloading Border0 client JS"
+# Fetch the client page to extract JS URL and download it
+js_path=$(curl -s https://client.border0.com | grep -oP '(?<=src=")/assets/index-[0-9a-f]+\.js' | head -1)
+if [ -n "$js_path" ]; then
+  curl -sSL https://client.border0.com${js_path} -o "$BORDER0_DIR/border0.js"
+  echo "Downloaded Border0 JS to $BORDER0_DIR/border0.js"
+else
+  echo "Failed to detect Border0 JS URL"
+fi
 
 echo "Setup complete. Activate the virtual environment with 'source venv/bin/activate' and run './webui' to start the server."
 echo " just run ./run.sh to start the server."
