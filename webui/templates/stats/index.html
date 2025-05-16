@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+{% block content %}
+<h1>Statistics</h1>
+<div class="row">
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5>CPU Usage (%)</h5>
+        <canvas id="cpuChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5>Memory Usage (%)</h5>
+        <canvas id="memChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5>Disk Usage (%)</h5>
+        <canvas id="diskChart"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5>Network Throughput (bytes/sec)</h5>
+        <canvas id="netChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Chart instances
+  const charts = {};
+  // Factory for simple line charts
+  const createChart = (ctx, label, color) => new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: label, data: [], borderColor: color, fill: false }] },
+    options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
+  });
+
+  charts.cpu = createChart(document.getElementById('cpuChart').getContext('2d'), 'CPU (%)', 'rgba(75, 192, 192, 1)');
+  charts.mem = createChart(document.getElementById('memChart').getContext('2d'), 'Memory (%)', 'rgba(255, 159, 64, 1)');
+  charts.disk = createChart(document.getElementById('diskChart').getContext('2d'), 'Disk (%)', 'rgba(54, 162, 235, 1)');
+  // Network chart with two datasets
+  charts.net = new Chart(document.getElementById('netChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'Bytes Sent/s', data: [], borderColor: 'rgba(153, 102, 255, 1)', fill: false },
+        { label: 'Bytes Recv/s', data: [], borderColor: 'rgba(255, 99, 132, 1)', fill: false }
+      ]
+    },
+    options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
+  });
+
+  function fetchData() {
+    fetch('{{ url_for("stats.data") }}')
+      .then(response => response.json())
+      .then(data => {
+        const timeLabel = new Date(data.time).toLocaleTimeString();
+        // CPU
+        charts.cpu.data.labels.push(timeLabel);
+        charts.cpu.data.datasets[0].data.push(data.cpu);
+        if (charts.cpu.data.labels.length > 20) {
+          charts.cpu.data.labels.shift(); charts.cpu.data.datasets[0].data.shift();
+        }
+        charts.cpu.update();
+
+        // Memory
+        charts.mem.data.labels.push(timeLabel);
+        charts.mem.data.datasets[0].data.push(data.memory);
+        if (charts.mem.data.labels.length > 20) {
+          charts.mem.data.labels.shift(); charts.mem.data.datasets[0].data.shift();
+        }
+        charts.mem.update();
+
+        // Disk
+        charts.disk.data.labels.push(timeLabel);
+        charts.disk.data.datasets[0].data.push(data.disk);
+        if (charts.disk.data.labels.length > 20) {
+          charts.disk.data.labels.shift(); charts.disk.data.datasets[0].data.shift();
+        }
+        charts.disk.update();
+
+        // Network
+        charts.net.data.labels.push(timeLabel);
+        charts.net.data.datasets[0].data.push(data.net_sent);
+        charts.net.data.datasets[1].data.push(data.net_recv);
+        if (charts.net.data.labels.length > 20) {
+          charts.net.data.labels.shift();
+          charts.net.data.datasets[0].data.shift();
+          charts.net.data.datasets[1].data.shift();
+        }
+        charts.net.update();
+      })
+      .catch(err => console.error('Error fetching stats:', err));
+  }
+
+  // Fetch historical data (past 24h) then start polling for live updates
+  function fetchHistory() {
+    fetch('{{ url_for("stats.history") }}?hours=24')
+      .then(response => response.json())
+      .then(arr => {
+        arr.forEach(data => {
+          const label = new Date(data.time).toLocaleTimeString();
+          charts.cpu.data.labels.push(label);
+          charts.cpu.data.datasets[0].data.push(data.cpu);
+          charts.mem.data.labels.push(label);
+          charts.mem.data.datasets[0].data.push(data.memory);
+          charts.disk.data.labels.push(label);
+          charts.disk.data.datasets[0].data.push(data.disk);
+          charts.net.data.labels.push(label);
+          charts.net.data.datasets[0].data.push(data.net_sent);
+          charts.net.data.datasets[1].data.push(data.net_recv);
+        });
+        charts.cpu.update();
+        charts.mem.update();
+        charts.disk.update();
+        charts.net.update();
+      })
+      .catch(err => console.error('Error fetching history:', err));
+  }
+  fetchHistory();
+  // Start polling for new data every 2 seconds
+  setInterval(fetchData, 2000);
+});
+</script>
+{% endblock %}

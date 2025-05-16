@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Wi-Fi Configuration</h1>
+{% if interfaces %}
+  {% for iface in interfaces %}
+    <div class="card mb-4">
+      <div class="card-header"><strong>{{ iface.name }}</strong></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}">
+          <div class="mb-3">
+            <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
+            <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid"
+                   value="{{ iface.ssid }}" required maxlength="32">
+          </div>
+          <div class="mb-3">
+            <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
+            <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
+              {% for mode in hw_modes %}
+                <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ mode }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
+            <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase"
+                   value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
+          </div>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <p>No Wi-Fi interfaces found.</p>
+{% endif %}
+{% endblock %}

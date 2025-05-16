@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Border0 VPN Configuration</h1>
+
+<!-- Organization setup -->
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      <div class="col-md-8">
+        <label for="org" class="form-label">Organization Name</label>
+        <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required>
+      </div>
+      <div class="col-md-4 align-self-end">
+        <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Initiate login to Border0 -->
+{% if org %}
+  {% if login_url %}
+    <div class="alert alert-info">
+      <script>window.open('{{ login_url }}', '_blank');</script>
+      <p>A new window has been opened for Border0 authentication.<br>
+      If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
+      <p>Once authentication is complete, reload this page to continue.</p>
+    </div>
+  {% else %}
+    <form method="post" class="mb-4">
+      <button type="submit" name="action" value="login" class="btn btn-secondary">Login to Border0</button>
+    </form>
+  {% endif %}
+{% endif %}
+
+<!-- Token upload and VPN installation -->
+{% if not token_exists %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <p>No Border0 client token found. Please paste your client token below:</p>
+      <form method="post">
+        <div class="mb-3">
+          <label for="token" class="form-label">Client Token</label>
+          <textarea class="form-control" id="token" name="token" rows="5" required></textarea>
+        </div>
+        <button type="submit" name="action" value="upload_token" class="btn btn-primary">Save Token</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <p>Border0 client token detected.</p>
+      <form method="post">
+        <button type="submit" name="action" value="install_vpn" class="btn btn-success">Restart VPN Service</button>
+      </form>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Home</h1>
+<div class="card">
+  <div class="card-body">
+    <p><strong>Current border0 version:</strong> {{ current_version }}</p>
+    {% if update_available %}
+      <p class="text-warning"><strong>New version available:</strong> {{ new_version }}</p>
+      <a href="{{ url_for('home.upgrade_page') }}" class="btn btn-primary">Upgrade to {{ new_version }}</a>
+    {% else %}
+      <p class="text-success">You are running the latest version.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

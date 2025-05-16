@@ -1,0 +1,12 @@
+[Unit]
+Description=Border0 Metrics Collector Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env python3 /opt/border0/webui/metrics_collector.py
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

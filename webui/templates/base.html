@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Gateway Admin Panel</title>
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/bootstrap.min.css') }}">
+  <!-- Volt theme CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/volt.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="d-flex" style="height: 100vh;">
+    <nav id="sidebar" class="bg-light border-end" style="width: 250px; overflow-y: auto;">
+      <div class="sidebar-heading p-3">Gateway Admin</div>
+      <div class="list-group list-group-flush">
+        <a href="{{ url_for('home.index') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'home.index' %}active{% endif %}">Home</a>
+        <a href="{{ url_for('wifi.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wifi.') %}active{% endif %}">Wi-Fi Config</a>
+        <a href="{{ url_for('wan.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wan.') %}active{% endif %}">WAN Config</a>
+        <a href="{{ url_for('lan.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('lan.') %}active{% endif %}">LAN Config</a>
+        <a href="{{ url_for('vpn.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('vpn.') %}active{% endif %}">Border0 VPN Config</a>
+        <a href="{{ url_for('stats.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('stats.') %}active{% endif %}">Statistics</a>
+      </div>
+      <div class="list-group list-group-flush mt-auto">
+        <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action">Logout</a>
+      </div>
+    </nav>
+    <div class="flex-grow-1 d-flex flex-column">
+      <nav class="navbar navbar-expand navbar-light bg-light border-bottom">
+        <div class="container-fluid">
+          <button class="btn btn-outline-secondary me-3" id="menu-toggle">☰</button>
+          <a class="navbar-brand" href="{{ url_for('home.index') }}">Gateway Admin Panel</a>
+        </div>
+      </nav>
+      <main class="content flex-grow-1 overflow-auto">
+        <div class="container-fluid py-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+      </main>
+    </div>
+  </div>
+  <!-- Bootstrap Bundle JS -->
+  <script src="{{ url_for('static', filename='volt/js/bootstrap.bundle.min.js') }}"></script>
+  <!-- Volt theme JS -->
+  <script src="{{ url_for('static', filename='volt/js/volt.js') }}"></script>
+  <script>
+    document.getElementById('menu-toggle').addEventListener('click', function(e) {
+      e.preventDefault();
+      document.getElementById('sidebar').classList.toggle('d-none');
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
