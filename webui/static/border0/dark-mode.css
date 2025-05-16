@@ -1,0 +1,9 @@
+/* Dark mode styling: invert colors of the light theme */
+html[data-theme="dark"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+  background-color: #111 !important;
+}
+/* Ensure images and icons stay correct (optional exceptions) */
+img, svg {
+  filter: invert(1) hue-rotate(180deg) !important;
+}

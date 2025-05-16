@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/bootstrap.min.css') }}">
   <!-- Volt theme CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/volt.css') }}">
+  <!-- Border0 light theme CSS -->
+  <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
+  <!-- Border0 dark mode overrides -->
+  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}" disabled>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -31,6 +35,8 @@
         <div class="container-fluid">
           <button class="btn btn-outline-secondary me-3" id="menu-toggle">☰</button>
           <a class="navbar-brand" href="{{ url_for('home.index') }}">Gateway Admin Panel</a>
+          <!-- Theme toggle -->
+          <button class="btn btn-outline-secondary btn-sm ms-auto" id="theme-toggle">Dark Mode</button>
         </div>
       </nav>
       <main class="content flex-grow-1 overflow-auto">
@@ -52,10 +58,40 @@
   <!-- Volt theme JS -->
   <script src="{{ url_for('static', filename='volt/js/volt.js') }}"></script>
   <script>
+    // Sidebar toggle
     document.getElementById('menu-toggle').addEventListener('click', function(e) {
       e.preventDefault();
       document.getElementById('sidebar').classList.toggle('d-none');
     });
+  </script>
+  <script>
+    // Theme toggle: switch between light and dark mode
+    (function() {
+      const toggleBtn = document.getElementById('theme-toggle');
+      const lightCss = document.getElementById('border0-light-css');
+      const darkCss = document.getElementById('border0-dark-css');
+      function setTheme(theme) {
+        if (theme === 'dark') {
+          lightCss.disabled = true;
+          darkCss.disabled = false;
+          document.documentElement.setAttribute('data-theme', 'dark');
+          toggleBtn.innerText = 'Light Mode';
+        } else {
+          lightCss.disabled = false;
+          darkCss.disabled = true;
+          document.documentElement.setAttribute('data-theme', 'light');
+          toggleBtn.innerText = 'Dark Mode';
+        }
+        localStorage.setItem('theme', theme);
+      }
+      toggleBtn.addEventListener('click', function() {
+        const current = localStorage.getItem('theme') || 'light';
+        setTheme(current === 'light' ? 'dark' : 'light');
+      });
+      // Initialize theme
+      const saved = localStorage.getItem('theme') || 'light';
+      setTheme(saved);
+    })();
   </script>
   {% block scripts %}{% endblock %}
 </body>
