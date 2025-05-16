@@ -1,9 +1,30 @@
-/* Dark mode styling: invert colors of the light theme */
-html[data-theme="dark"] {
-  filter: invert(1) hue-rotate(180deg) !important;
-  background-color: #111 !important;
+/* Dark mode styling: explicit background and text colors to match Border0 client */
+html[data-theme="dark"] body,
+html[data-theme="dark"] #sidebar,
+html[data-theme="dark"] .navbar,
+html[data-theme="dark"] .container-fluid,
+html[data-theme="dark"] .card {
+  background-color: #20252b !important;
+  color: #d1d8e0 !important;
 }
-/* Ensure images and icons stay correct (optional exceptions) */
-img, svg {
-  filter: invert(1) hue-rotate(180deg) !important;
+/* Override Bootstrap bg-light for dark theme */
+html[data-theme="dark"] .bg-light,
+html[data-theme="dark"] .border-end {
+  background-color: #20252b !important;
+  border-color: #3a3d42 !important;
+}
+/* List group items background/text color */
+html[data-theme="dark"] .list-group-item {
+  background-color: #20252b !important;
+  color: #d1d8e0 !important;
+}
+html[data-theme="dark"] .list-group-item-action:hover,
+html[data-theme="dark"] .list-group-item-action.active {
+  background-color: #2c2f36 !important;
+}
+/* Content area (flash messages, forms, etc.) */
+html[data-theme="dark"] .content,
+html[data-theme="dark"] .alert {
+  background-color: #20252b !important;
+  color: #d1d8e0 !important;
 }
