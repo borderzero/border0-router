@@ -7,6 +7,7 @@
 <div class="d-flex justify-content-end mb-3">
   <label class="me-2 align-self-center">Time Range:</label>
   <div class="btn-group" role="group" aria-label="Time range">
+    <button type="button" class="btn btn-outline-primary" data-mode="live">Live</button>
     <button type="button" class="btn btn-outline-primary" data-hours="1">1H</button>
     <button type="button" class="btn btn-outline-primary" data-hours="4">4H</button>
     <button type="button" class="btn btn-outline-primary active" data-hours="24">24H</button>
@@ -58,8 +59,10 @@ document.addEventListener('DOMContentLoaded', function() {
   const pollIntervalMs = 5000;
   // Time window in hours (default 24)
   let hoursWindow = 24;
-  // Max points allowed
+  // Max points allowed (history mode only)
   let maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
+  // Display mode: 'history' or 'live'
+  let mode = 'history';
 
   // Factory for simple line charts
   const createChart = (ctx, label, color) => new Chart(ctx, {
@@ -100,9 +103,11 @@ document.addEventListener('DOMContentLoaded', function() {
         function pushData(chart, value, dsIndex = 0) {
           chart.data.labels.push(timeLabel);
           chart.data.datasets[dsIndex].data.push(value);
-          while (chart.data.labels.length > maxPoints) {
-            chart.data.labels.shift();
-            chart.data.datasets.forEach(ds => ds.data.shift());
+          if (mode === 'history') {
+            while (chart.data.labels.length > maxPoints) {
+              chart.data.labels.shift();
+              chart.data.datasets.forEach(ds => ds.data.shift());
+            }
           }
           chart.update();
         }
@@ -138,13 +143,19 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Initialize button handlers for time range
-  document.querySelectorAll('button[data-hours]').forEach(btn => {
+  document.querySelectorAll('button[data-mode], button[data-hours]').forEach(btn => {
     btn.addEventListener('click', function() {
-      document.querySelectorAll('button[data-hours]').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('button[data-mode], button[data-hours]').forEach(b => b.classList.remove('active'));
       this.classList.add('active');
-      hoursWindow = parseFloat(this.dataset.hours);
-      maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
-      clearCharts(); fetchHistory();
+      if (this.dataset.mode === 'live') {
+        mode = 'live';
+        clearCharts();
+      } else {
+        mode = 'history';
+        hoursWindow = parseFloat(this.dataset.hours);
+        maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
+        clearCharts(); fetchHistory();
+      }
     });
   });
 
