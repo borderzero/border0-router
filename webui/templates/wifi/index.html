@@ -44,6 +44,7 @@
                   <button type="submit" name="action" value="enable" class="btn btn-success me-2">Enable Service</button>
                 {% endif %}
                 <button type="submit" name="action" value="restart" class="btn btn-secondary">Restart Service</button>
+                <span class="ms-3">Service enabled: {{ 'Yes' if iface.service_enabled else 'No' }} | Service active: {{ 'Yes' if iface.service_active else 'No' }}</span>
               </div>
             </form>
           </div>
@@ -54,8 +55,6 @@
           <div class="card-header"><strong>{{ iface.name }}</strong> Statistics</div>
           <div class="card-body">
             <pre style="white-space: pre-wrap;">{{ iface.stats }}</pre>
-            <p>Service enabled: {{ 'Yes' if iface.service_enabled else 'No' }}<br>
-               Service active: {{ 'Yes' if iface.service_active else 'No' }}</p>
           </div>
         </div>
       </div>
