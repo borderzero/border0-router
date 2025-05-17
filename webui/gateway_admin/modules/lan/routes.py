@@ -86,25 +86,23 @@ def index():
                 flash('Invalid LAN broadcast address', 'warning')
                 return redirect(url_for('lan.index'))
         # Build config file
+        # Render static LAN config via Jinja template
         cfg_dir = '/etc/network/interfaces.d'
         os.makedirs(cfg_dir, exist_ok=True)
         cfg_file = os.path.join(cfg_dir, f'{iface}.conf')
-        lines = [
-            f'allow-hotplug {iface}',
-            f'auto {iface}',
-            f'iface {iface} inet static',
-            f'    address {address}',
-            f'    netmask {netmask}',
-        ]
-        if gateway:
-            lines.append(f'    gateway {gateway}')
-        if dns:
-            lines.append(f'    dns-nameservers {dns}')
-        if broadcast:
-            lines.append(f'    broadcast {broadcast}')
+        template_name = 'config/interfaces-static.conf.j2'
+        context = {
+            'iface': iface,
+            'address': address,
+            'netmask': netmask,
+            'gateway': gateway,
+            'dns': dns,
+            'broadcast': broadcast
+        }
         try:
+            content = render_template(template_name, **context)
             with open(cfg_file, 'w') as f:
-                f.write('\n'.join(lines) + '\n')
+                f.write(content)
             # Save selected LAN interface
             os.makedirs(os.path.dirname(lan_iface_path), exist_ok=True)
             with open(lan_iface_path, 'w') as f:

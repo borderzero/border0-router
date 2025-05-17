@@ -54,56 +54,27 @@ def index():
         except Exception:
             pass
         cfg_file = os.path.join(cfg_dir, f'{iface}.conf')
-        lines = [
-            f'allow-hotplug {iface}',
-            f'auto {iface}',
-            f'iface {iface} inet {m}'
-        ]
+        # Render network config via Jinja template
+        template_name = 'config/interfaces-dhcp.conf.j2' if m == 'dhcp' else 'config/interfaces-static.conf.j2'
+        # Prepare context
+        context = {'iface': iface}
         if m == 'static':
             address = request.form.get('address', '').strip()
             netmask = request.form.get('netmask', '').strip()
             gateway = request.form.get('gateway', '').strip()
             dns = request.form.get('dns', '').strip()
             broadcast = request.form.get('broadcast', '').strip()
-            # Validate addresses
-            try:
-                ipaddress.IPv4Address(address)
-                ipaddress.IPv4Address(netmask)
-            except Exception:
-                flash('Invalid static IP address or netmask', 'warning')
-                return redirect(url_for('wan.index'))
-            if gateway:
-                try:
-                    ipaddress.IPv4Address(gateway)
-                except Exception:
-                    flash('Invalid gateway address', 'warning')
-                    return redirect(url_for('wan.index'))
-            if dns:
-                for ip in dns.split():
-                    try:
-                        ipaddress.IPv4Address(ip)
-                    except Exception:
-                        flash('Invalid DNS address', 'warning')
-                        return redirect(url_for('wan.index'))
-            if broadcast:
-                try:
-                    ipaddress.IPv4Address(broadcast)
-                except Exception:
-                    flash('Invalid broadcast address', 'warning')
-                    return redirect(url_for('wan.index'))
-            lines += [
-                f'    address {address}',
-                f'    netmask {netmask}',
-            ]
-            if gateway:
-                lines.append(f'    gateway {gateway}')
-            if dns:
-                lines.append(f'    dns-nameservers {dns}')
-            if broadcast:
-                lines.append(f'    broadcast {broadcast}')
+            context.update({
+                'address': address,
+                'netmask': netmask,
+                'gateway': gateway,
+                'dns': dns,
+                'broadcast': broadcast
+            })
         try:
+            content = render_template(template_name, **context)
             with open(cfg_file, 'w') as f:
-                f.write('\n'.join(lines) + '\n')
+                f.write(content)
         except Exception as e:
             flash(f'Failed to write config: {e}', 'danger')
             return redirect(url_for('wan.index'))

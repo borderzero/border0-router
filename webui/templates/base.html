@@ -12,6 +12,12 @@
   <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
   <!-- Border0 dark mode overrides -->
   <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}" disabled>
+  <!-- Sidebar menu items bold -->
+  <style>
+    #sidebar .list-group-item {
+      font-weight: 600;
+    }
+  </style>
   {% block head %}{% endblock %}
 </head>
 <body>

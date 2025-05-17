@@ -78,24 +78,17 @@ def save(iface):
     except Exception:
         pass
     cfg_file = os.path.join(cfg_dir, f"{iface}.conf")
-    lines = [
-        f"interface={iface}",
-        "driver=nl80211",
-        "",
-        f"ssid={ssid}",
-        f"hw_mode={hw_mode}",
-        "channel=6",
-        "country_code=US",
-        "",
-        "wpa=2",
-        "wpa_key_mgmt=WPA-PSK",
-        f"wpa_passphrase={wpa_passphrase}",
-        "rsn_pairwise=CCMP",
-        ""
-    ]
+    # Render hostapd config via Jinja template
     try:
+        content = render_template(
+            'config/hostapd.conf.j2',
+            iface=iface,
+            ssid=ssid,
+            hw_mode=hw_mode,
+            wpa_passphrase=wpa_passphrase
+        )
         with open(cfg_file, 'w') as f:
-            f.write("\n".join(lines))
+            f.write(content)
         flash(f'Configuration for {iface} saved', 'success')
     except Exception as e:
         flash(f'Failed to save config for {iface}: {e}', 'danger')

@@ -1,1 +1,0 @@
-"""Wi-Fi config blueprint."""
