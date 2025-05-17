@@ -1,5 +1,8 @@
-import subprocess
+import os
+import json
 import re
+import subprocess
+import urllib.request
 from flask import Blueprint, render_template, current_app, flash, redirect, url_for
 from flask_login import login_required
 
@@ -8,30 +11,61 @@ home_bp = Blueprint('home', __name__, url_prefix='')
 @home_bp.route('/')
 @login_required
 def index():
-    cli = current_app.config.get('BORDER0_CLI_PATH', 'border0')
-    # Get current version
+    cache_dir = '/etc/border0'
+    cache_file = os.path.join(cache_dir, 'version_cache.json')
+    data = {}
     try:
-        out = subprocess.check_output([cli, '--version'], stderr=subprocess.STDOUT, text=True)
+        with open(cache_file) as f:
+            data = json.load(f)
+    except Exception:
+        pass
+    current_version = data.get('current_version', 'unknown')
+    update_available = data.get('update_available', False)
+    new_version = data.get('new_version')
+    return render_template(
+        'home/index.html',
+        current_version=current_version,
+        update_available=update_available,
+        new_version=new_version
+    )
+@home_bp.route('/check_update', methods=['POST'])
+@login_required
+def check_update():
+    cli = current_app.config.get('BORDER0_CLI_PATH', 'border0')
+    cache_dir = '/etc/border0'
+    cache_file = os.path.join(cache_dir, 'version_cache.json')
+    os.makedirs(cache_dir, exist_ok=True)
+    try:
+        out = subprocess.check_output([cli, '--version'], stderr=subprocess.STDOUT, text=True, timeout=30)
         m = re.search(r'version:\s*(v\S+)', out)
         current_version = m.group(1) if m else 'unknown'
     except Exception as e:
-        current_version = 'unknown'
         flash(f'Failed to get current Border0 version: {e}', 'warning')
-    # Check for new version
-    update_available = False
-    new_version = None
+        return redirect(url_for('home.index'))
+    latest = None
     try:
-        check_out = subprocess.check_output([cli, 'version', 'check'], stderr=subprocess.STDOUT, text=True)
-        m2 = re.search(r'There is a newer version available.*\((v[^)]+)\)', check_out)
-        if m2:
-            update_available = True
-            new_version = m2.group(1)
-    except Exception:
-        pass
-    return render_template('home/index.html',
-                           current_version=current_version,
-                           update_available=update_available,
-                           new_version=new_version)
+        resp = urllib.request.urlopen('https://download.border0.com/latest_version.txt', timeout=10)
+        latest = resp.read().decode().strip()
+    except Exception as e:
+        flash(f'Failed to fetch latest version info: {e}', 'warning')
+    update_available = bool(latest and latest != current_version)
+    cache = {
+        'current_version': current_version,
+        'update_available': update_available,
+        'new_version': latest
+    }
+    try:
+        tmp = cache_file + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(cache, f)
+        os.replace(tmp, cache_file)
+    except Exception as e:
+        flash(f'Failed to write version cache: {e}', 'warning')
+    if update_available:
+        flash(f'New version available: {latest}', 'success')
+    else:
+        flash('No new version available.', 'info')
+    return redirect(url_for('home.index'))
 
 import json
 from flask import Response
