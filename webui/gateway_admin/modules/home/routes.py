@@ -103,5 +103,25 @@ def upgrade_stream():
         proc.wait()
         # Final event
         status = 'success' if proc.returncode == 0 else 'error'
+        # On successful upgrade, refresh version cache
+        if status == 'success':
+            cache_dir = '/etc/border0'
+            cache_file = os.path.join(cache_dir, 'version_cache.json')
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                out = subprocess.check_output([cli, '--version'], stderr=subprocess.STDOUT, text=True, timeout=30)
+                m2 = re.search(r'version:\s*(v\S+)', out)
+                curr_version = m2.group(1) if m2 else None
+                cache = {
+                    'current_version': curr_version or '',
+                    'update_available': False,
+                    'new_version': curr_version or ''
+                }
+                tmp = cache_file + '.tmp'
+                with open(tmp, 'w') as f:
+                    json.dump(cache, f)
+                os.replace(tmp, cache_file)
+            except Exception:
+                pass
         yield f"event: done\ndata: {json.dumps({'status': status})}\n\n"
     return Response(generate(), mimetype='text/event-stream')
