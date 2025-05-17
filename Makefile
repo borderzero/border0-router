@@ -26,8 +26,9 @@ build-amd64: ## Build binary for Linux AMD64
 build-all: build-arm64 build-amd64 ## Build binaries for all platforms
 
 # Utility targets
+
 .PHONY: clean
-clean: ## Remove built binaries
+clean: ## Remove built daemon binaries (Go build outputs)
 	rm -f $(BIN_DIR)/$(BINARY_NAME)*.bin
 
 .PHONY: help
@@ -44,4 +45,30 @@ build-iso: ## Build the ISO image
 .PHONY: download-iso
 download-iso: ## Download the ISO image
 	cd build && ./download_iso.sh
+
+.PHONY: clean-dev
+clean-dev: ## Remove Python virtualenv and cache files (pre-deploy cleanup)
+	# Remove Python virtual environment
+	rm -rf webui/venv
+	# Remove compiled Python files and __pycache__ directories
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.py[co]" -delete
+
+# Default SSH deployment settings
+SSH_HOST ?= pi@raspberrypi.local
+SSH_PATH ?= /home/pi/gateway-admin
+
+
+.PHONY: deploy
+deploy: clean-dev ## Sync project to Raspberry Pi via SSH (usage: make deploy SSH_HOST=pi@host SSH_PATH=/remote/path)
+	@echo "Deploying to $(SSH_HOST):$(SSH_PATH)..."
+	rsync -avz --delete \
+  --exclude="venv" \
+  --exclude="__pycache__/" \
+  --exclude="*.py[co]" \
+  --exclude="iso/" \
+  --exclude="build/" \
+  --exclude="bin/" \
+  --exclude=".git/" \
+  ./ $(SSH_HOST):$(SSH_PATH)
 

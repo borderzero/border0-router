@@ -49,6 +49,16 @@ if [ -n "$js_path" ]; then
 else
   echo "Failed to detect Border0 JS URL"
 fi
+echo "Downloading Border0 static assets (fonts, icons, etc.)"
+ASSETS_DIR="$BORDER0_DIR/assets"
+mkdir -p "$ASSETS_DIR"
+# Mirror the assets folder from the client site
+wget -q -r -np -nH --cut-dirs=1 -P "$BORDER0_DIR" https://client.border0.com/assets/
+echo "Assets mirrored to $ASSETS_DIR"
+
+echo "Downloading Border0 favicon"
+curl -sSL https://client.border0.com/favicon.ico -o "$BORDER0_DIR/favicon.ico"
+echo "Downloaded favicon to $BORDER0_DIR/favicon.ico"
 
 echo "Setup complete. Activate the virtual environment with 'source venv/bin/activate' and run './webui' to start the server."
 echo " just run ./run.sh to start the server."

@@ -21,6 +21,16 @@ def create_app():
     app.config.from_object(Config)
 
     login_manager.init_app(app)
+    # Serve Border0 client assets (fonts, icons)
+    from flask import send_from_directory
+    assets_folder = os.path.join(static_dir, 'border0', 'assets')
+    @app.route('/assets/<path:filename>')
+    def border0_asset(filename):
+        return send_from_directory(assets_folder, filename)
+    # Serve Border0 favicon
+    @app.route('/favicon.ico')
+    def favicon():
+        return send_from_directory(os.path.join(static_dir, 'border0'), 'favicon.ico')
 
     # Register blueprints
     app.register_blueprint(auth_bp)
