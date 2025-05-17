@@ -1,14 +1,14 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Border0 VPN Configuration</h1>
+<h1>border0 config</h1>
 
 <!-- Organization setup -->
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" class="row g-3">
-      <div class="col-md-8">
+  <div class="col-md-8">
         <label for="org" class="form-label">Organization Name</label>
-        <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required>
+        <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30">
       </div>
       <div class="col-md-4 align-self-end">
         <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
@@ -17,7 +17,14 @@
   </div>
 </div>
 
-<!-- Initiate login to Border0 -->
+{# Show current organization if already set #}
+{% if org %}
+  <div class="mb-4">
+    <p>Current organization: <strong>{{ org }}</strong></p>
+  </div>
+{% endif %}
+
+<!-- Initiate login and service management -->
 {% if org %}
   {% if login_url %}
     <div class="alert alert-info">
@@ -26,11 +33,15 @@
       If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
       <p>Once authentication is complete, reload this page to continue.</p>
     </div>
-  {% else %}
-    <form method="post" class="mb-4">
-      <button type="submit" name="action" value="login" class="btn btn-secondary">Login to Border0</button>
-    </form>
   {% endif %}
+  <div class="mb-4">
+    <form method="post" class="d-flex gap-2">
+      <button type="submit" name="action" value="login" class="btn btn-primary">Login to border0</button>
+      {% if token_exists %}
+        <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart border0 service</button>
+      {% endif %}
+    </form>
+  </div>
 {% endif %}
 
 <!-- Token upload and VPN installation -->
@@ -47,14 +58,5 @@
       </form>
     </div>
   </div>
-{% else %}
-  <div class="card mb-4">
-    <div class="card-body">
-      <p>Border0 client token detected.</p>
-      <form method="post">
-        <button type="submit" name="action" value="install_vpn" class="btn btn-success">Restart VPN Service</button>
-      </form>
-    </div>
-  </div>
-{% endif %}
+{%- endif %}
 {% endblock %}

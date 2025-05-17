@@ -53,31 +53,25 @@ def index():
                 flash('Please set the organization name first.', 'danger')
             else:
                 try:
-                    # Step 1: fetch the login URL only (CLI flag --url-only)
-                    result = subprocess.run(
+                    # Launch Border0 CLI login to obtain the URL and stay running
+                    proc = subprocess.Popen(
                         [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
-                        capture_output=True, text=True, timeout=15
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        preexec_fn=os.setsid
                     )
-                    if result.returncode != 0:
-                        msg = result.stderr or result.stdout
-                        flash(f'Failed to get login URL: {msg}', 'danger')
-                    else:
-                        # Parse the first HTTP(S) URL in output
-                        match = re.search(r'(https?://\S+)', result.stdout)
-                        if not match:
-                            flash('Login URL not found in CLI output.', 'danger')
-                        else:
-                            login_url = match.group(1)
-                            # Step 2: spawn the actual CLI login which will wait for user to complete
-                            try:
-                                subprocess.Popen(
-                                    [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL,
-                                    preexec_fn=os.setsid
-                                )
-                            except Exception as bg_err:
-                                flash(f'Error starting login process: {bg_err}', 'danger')
+                    # Parse first HTTP(S) URL from output
+                    pattern_url = re.compile(r'(https?://\S+)')
+                    for line in proc.stdout:
+                        m = pattern_url.search(line)
+                        if m:
+                            login_url = m.group(1)
+                            break
+                    if not login_url:
+                        flash('Login URL not found in CLI output.', 'danger')
+                    # Process stays alive to wait for user to complete login
                 except Exception as e:
                     flash(f'Error running login command: {e}', 'danger')
             # fall through to render with login_url if set
