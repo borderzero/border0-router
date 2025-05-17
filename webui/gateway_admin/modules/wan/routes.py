@@ -1,6 +1,7 @@
 import os
 import re
 import ipaddress
+import subprocess
 from flask import Blueprint, render_template, request, flash, redirect, url_for, abort, current_app
 from flask_login import login_required
 # Default static configuration defaults
@@ -106,8 +107,22 @@ def index():
             except Exception:
                 pass
 
-    return render_template('wan/index.html',
-                           interfaces=interfaces,
-                           current_iface=current_iface,
-                           mode=mode,
-                           static_cfg=static_cfg)
+    # Retrieve interface statistics
+    stats = ''
+    if current_iface:
+        try:
+            result = subprocess.run(
+                ['ip', '-s', 'link', 'show', 'dev', current_iface],
+                capture_output=True, text=True, timeout=2
+            )
+            stats = result.stdout or result.stderr
+        except Exception:
+            stats = 'Unable to retrieve interface statistics'
+    return render_template(
+        'wan/index.html',
+        interfaces=interfaces,
+        current_iface=current_iface,
+        mode=mode,
+        static_cfg=static_cfg,
+        stats=stats
+    )

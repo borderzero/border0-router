@@ -1,7 +1,16 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>WAN Configuration</h1>
-<form method="post" action="{{ url_for('wan.index') }}">
+<div class="row mb-4">
+  <div class="col-md-6">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <form method="post" action="{{ url_for('wan.index') }}">
   <div class="mb-3">
     <label for="iface-select" class="form-label">Select WAN Interface</label>
     <select id="iface-select" name="iface" class="form-select" required>
@@ -46,7 +55,23 @@
     </div>
   </div>
   <button type="submit" class="btn btn-primary">Save WAN Configuration</button>
-</form>
+    </form>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header"><strong>{{ current_iface if current_iface else '' }}</strong> Statistics</div>
+      <div class="card-body">
+        {% if stats %}
+          <pre style="white-space: pre-wrap;">{{ stats }}</pre>
+        {% elif current_iface %}
+          <p>No statistics available.</p>
+        {% else %}
+          <p>Select an interface to view statistics.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 {% block scripts %}
 <script>
   function toggleStatic() {
