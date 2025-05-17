@@ -12,8 +12,8 @@ import os
 
 # Log file path; matches Config.METRICS_LOG_PATH in the web UI
 LOG_FILE = '/var/lib/border0/metrics.log'
-# Sampling interval in seconds
-INTERVAL = 60
+# Sampling interval in seconds (reduced to collect every 15 seconds)
+INTERVAL = 15
 
 def ensure_log_dir(path):
     dirpath = os.path.dirname(path)

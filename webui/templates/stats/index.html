@@ -4,6 +4,14 @@
 {% endblock %}
 {% block content %}
 <h1>Statistics</h1>
+<div class="d-flex justify-content-end mb-3">
+  <label class="me-2 align-self-center">Time Range:</label>
+  <div class="btn-group" role="group" aria-label="Time range">
+    <button type="button" class="btn btn-outline-primary" data-hours="1">1H</button>
+    <button type="button" class="btn btn-outline-primary" data-hours="4">4H</button>
+    <button type="button" class="btn btn-outline-primary active" data-hours="24">24H</button>
+  </div>
+</div>
 <div class="row">
   <div class="col-md-6">
     <div class="card mb-4">
@@ -44,8 +52,15 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Chart instances
+  // Chart instances container
   const charts = {};
+  // Polling interval in ms
+  const pollIntervalMs = 5000;
+  // Time window in hours (default 24)
+  let hoursWindow = 24;
+  // Max points allowed
+  let maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
+
   // Factory for simple line charts
   const createChart = (ctx, label, color) => new Chart(ctx, {
     type: 'line',
@@ -53,69 +68,57 @@ document.addEventListener('DOMContentLoaded', function() {
     options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
   });
 
+  // Initialize charts
   charts.cpu = createChart(document.getElementById('cpuChart').getContext('2d'), 'CPU (%)', 'rgba(75, 192, 192, 1)');
   charts.mem = createChart(document.getElementById('memChart').getContext('2d'), 'Memory (%)', 'rgba(255, 159, 64, 1)');
   charts.disk = createChart(document.getElementById('diskChart').getContext('2d'), 'Disk (%)', 'rgba(54, 162, 235, 1)');
-  // Network chart with two datasets
   charts.net = new Chart(document.getElementById('netChart').getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
+    type: 'line', data: {
+      labels: [], datasets: [
         { label: 'Bytes Sent/s', data: [], borderColor: 'rgba(153, 102, 255, 1)', fill: false },
         { label: 'Bytes Recv/s', data: [], borderColor: 'rgba(255, 99, 132, 1)', fill: false }
       ]
-    },
-    options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
+    }, options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
   });
 
+  // Clear all chart data
+  function clearCharts() {
+    Object.values(charts).forEach(chart => {
+      chart.data.labels = [];
+      chart.data.datasets.forEach(ds => { ds.data = []; });
+      chart.update();
+    });
+  }
+
+  // Fetch live data and update charts
   function fetchData() {
-    fetch('{{ url_for("stats.data") }}')
-      .then(response => response.json())
+    fetch("{{ url_for('stats.data') }}")
+      .then(r => r.json())
       .then(data => {
         const timeLabel = new Date(data.time).toLocaleTimeString();
-        // CPU
-        charts.cpu.data.labels.push(timeLabel);
-        charts.cpu.data.datasets[0].data.push(data.cpu);
-        if (charts.cpu.data.labels.length > 20) {
-          charts.cpu.data.labels.shift(); charts.cpu.data.datasets[0].data.shift();
+        // Helper to push and trim data
+        function pushData(chart, value, dsIndex = 0) {
+          chart.data.labels.push(timeLabel);
+          chart.data.datasets[dsIndex].data.push(value);
+          while (chart.data.labels.length > maxPoints) {
+            chart.data.labels.shift();
+            chart.data.datasets.forEach(ds => ds.data.shift());
+          }
+          chart.update();
         }
-        charts.cpu.update();
-
-        // Memory
-        charts.mem.data.labels.push(timeLabel);
-        charts.mem.data.datasets[0].data.push(data.memory);
-        if (charts.mem.data.labels.length > 20) {
-          charts.mem.data.labels.shift(); charts.mem.data.datasets[0].data.shift();
-        }
-        charts.mem.update();
-
-        // Disk
-        charts.disk.data.labels.push(timeLabel);
-        charts.disk.data.datasets[0].data.push(data.disk);
-        if (charts.disk.data.labels.length > 20) {
-          charts.disk.data.labels.shift(); charts.disk.data.datasets[0].data.shift();
-        }
-        charts.disk.update();
-
-        // Network
-        charts.net.data.labels.push(timeLabel);
-        charts.net.data.datasets[0].data.push(data.net_sent);
-        charts.net.data.datasets[1].data.push(data.net_recv);
-        if (charts.net.data.labels.length > 20) {
-          charts.net.data.labels.shift();
-          charts.net.data.datasets[0].data.shift();
-          charts.net.data.datasets[1].data.shift();
-        }
-        charts.net.update();
+        pushData(charts.cpu, data.cpu);
+        pushData(charts.mem, data.memory);
+        pushData(charts.disk, data.disk);
+        pushData(charts.net, data.net_sent, 0);
+        pushData(charts.net, data.net_recv, 1);
       })
       .catch(err => console.error('Error fetching stats:', err));
   }
 
-  // Fetch historical data (past 24h) then start polling for live updates
+  // Fetch historical data for given window
   function fetchHistory() {
-    fetch('{{ url_for("stats.history") }}?hours=24')
-      .then(response => response.json())
+    fetch("{{ url_for('stats.history') }}?hours=" + hoursWindow)
+      .then(r => r.json())
       .then(arr => {
         arr.forEach(data => {
           const label = new Date(data.time).toLocaleTimeString();
@@ -129,16 +132,26 @@ document.addEventListener('DOMContentLoaded', function() {
           charts.net.data.datasets[0].data.push(data.net_sent);
           charts.net.data.datasets[1].data.push(data.net_recv);
         });
-        charts.cpu.update();
-        charts.mem.update();
-        charts.disk.update();
-        charts.net.update();
+        charts.cpu.update(); charts.mem.update(); charts.disk.update(); charts.net.update();
       })
       .catch(err => console.error('Error fetching history:', err));
   }
-  fetchHistory();
-  // Start polling for new data every 2 seconds
-  setInterval(fetchData, 2000);
+
+  // Initialize button handlers for time range
+  document.querySelectorAll('button[data-hours]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('button[data-hours]').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      hoursWindow = parseFloat(this.dataset.hours);
+      maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
+      clearCharts(); fetchHistory();
+    });
+  });
+
+  // Start with default window
+  clearCharts(); fetchHistory();
+  // Start polling for new data
+  setInterval(fetchData, pollIntervalMs);
 });
 </script>
 {% endblock %}

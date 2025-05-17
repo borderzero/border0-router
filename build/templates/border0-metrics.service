@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env python3 /opt/border0/webui/metrics_collector.py
+WorkingDirectory=/opt/border0/webui
+ExecStart=/opt/border0/webui/venv/bin/python3 /opt/border0/webui/metrics_collector.py
 Restart=always
-RestartSec=60
 
 [Install]
 WantedBy=multi-user.target

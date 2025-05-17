@@ -5,11 +5,11 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 from flask_login import login_required
 # Default static configuration defaults
 DEFAULT_STATIC_CFG = {
-    'address': '192.168.6.1',
+    'address': '192.168.123.1',
     'netmask': '255.255.255.0',
-    'gateway': '192.168.6.1',
-    'dns-nameservers': '208.67.220.220',
-    'broadcast': '192.168.6.255'
+    'gateway': '192.168.123.1',
+    'dns-nameservers': '208.67.220.220 8.8.8.8 1.1.1.1',
+    'broadcast': '192.168.123.255'
 }
 wan_bp = Blueprint('wan', __name__, url_prefix='/wan')
 

@@ -3,34 +3,82 @@
 <h1>Wi-Fi Configuration</h1>
 {% if interfaces %}
   {% for iface in interfaces %}
-    <div class="card mb-4">
-      <div class="card-header"><strong>{{ iface.name }}</strong></div>
-      <div class="card-body">
-        <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}">
-          <div class="mb-3">
-            <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
-            <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid"
-                   value="{{ iface.ssid }}" required maxlength="32">
+    <div class="row mb-4">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><strong>{{ iface.name }}</strong> Configuration</div>
+          <div class="card-body">
+            <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}">
+              <div class="mb-3">
+                <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
+                <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid"
+                       value="{{ iface.ssid }}" required maxlength="32">
+              </div>
+              <div class="mb-3">
+                <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
+                <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
+                  {% for mode in hw_modes %}
+                    <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ mode }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="mb-3">
+                <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
+                <div class="input-group">
+                  <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase"
+                         value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
+                  <button class="btn btn-outline-secondary" type="button" id="toggle-pass-{{ iface.name }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="d-flex align-items-center">
+                <button type="submit" name="action" value="save" class="btn btn-primary me-2">Save Settings</button>
+                {% if iface.service_enabled %}
+                  <button type="submit" name="action" value="disable" class="btn btn-warning me-2">Disable Service</button>
+                {% else %}
+                  <button type="submit" name="action" value="enable" class="btn btn-success me-2">Enable Service</button>
+                {% endif %}
+                <button type="submit" name="action" value="restart" class="btn btn-secondary">Restart Service</button>
+              </div>
+            </form>
           </div>
-          <div class="mb-3">
-            <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
-            <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
-              {% for mode in hw_modes %}
-                <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ mode }}</option>
-              {% endfor %}
-            </select>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-header"><strong>{{ iface.name }}</strong> Statistics</div>
+          <div class="card-body">
+            <pre style="white-space: pre-wrap;">{{ iface.stats }}</pre>
+            <p>Service enabled: {{ 'Yes' if iface.service_enabled else 'No' }}<br>
+               Service active: {{ 'Yes' if iface.service_active else 'No' }}</p>
           </div>
-          <div class="mb-3">
-            <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
-            <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase"
-                   value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
-          </div>
-          <button type="submit" class="btn btn-primary">Save Settings</button>
-        </form>
+        </div>
       </div>
     </div>
   {% endfor %}
 {% else %}
   <p>No Wi-Fi interfaces found.</p>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      {% for iface in interfaces %}
+      (function() {
+        var toggleBtn = document.getElementById('toggle-pass-{{ iface.name }}');
+        var passwordInput = document.getElementById('passphrase-{{ iface.name }}');
+        if (toggleBtn && passwordInput) {
+          toggleBtn.addEventListener('click', function() {
+            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+          });
+        }
+      })();
+      {% endfor %}
+    });
+  </script>
 {% endblock %}

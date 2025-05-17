@@ -28,3 +28,17 @@ html[data-theme="dark"] .alert {
   background-color: #20252b !important;
   color: #d1d8e0 !important;
 }
+/* Dark mode form controls */
+html[data-theme="dark"] .form-control,
+html[data-theme="dark"] .form-select {
+  background-color: #30343a !important;
+  color: #d1d8e0 !important;
+  border-color: #3a3d42 !important;
+}
+html[data-theme="dark"] .form-control:focus,
+html[data-theme="dark"] .form-select:focus {
+  background-color: #30343a !important;
+  color: #fff !important;
+  border-color: #6c757d !important;
+  box-shadow: 0 0 0 0.25rem rgba(108,117,125,0.25) !important;
+}

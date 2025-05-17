@@ -2,6 +2,7 @@ import os
 from flask import Flask
 from .config import Config
 from .extensions import login_manager
+from jinja2 import ChoiceLoader, FileSystemLoader
 
 # Import blueprints
 from .modules.auth.routes import auth_bp
@@ -19,6 +20,12 @@ def create_app():
 
     app = Flask(__name__, static_folder=static_dir, template_folder=template_dir)
     app.config.from_object(Config)
+    # include admin config templates in Jinja search path
+    admin_template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+    app.jinja_loader = ChoiceLoader([
+        app.jinja_loader,
+        FileSystemLoader(admin_template_dir),
+    ])
 
     login_manager.init_app(app)
     # Serve Border0 client assets (fonts, icons)

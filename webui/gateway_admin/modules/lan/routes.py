@@ -8,11 +8,11 @@ lan_bp = Blueprint('lan', __name__, url_prefix='/lan')
 
 # Default static configuration for LAN (used as initial values)
 DEFAULT_LAN_STATIC_CFG = {
-    'address': '192.168.1.1',
+    'address': '192.168.42.1',
     'netmask': '255.255.255.0',
-    'gateway': '192.168.1.1',
-    'dns-nameservers': '1.1.1.1 8.8.8.8',
-    'broadcast': '192.168.1.255'
+    'gateway': '192.168.42.1',
+    'dns-nameservers': '208.67.220.220 8.8.8.8 1.1.1.1',
+    'broadcast': '192.168.42.255'
 }
 
 @lan_bp.route('/', methods=['GET', 'POST'])

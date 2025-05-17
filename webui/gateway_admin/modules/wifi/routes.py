@@ -1,5 +1,6 @@
 import os
 from flask import Blueprint, render_template, request, flash, redirect, url_for, abort
+import subprocess
 from flask_login import login_required
 
 # Allowed hostapd hardware modes
@@ -40,11 +41,33 @@ def index():
                                     wpa_passphrase = v
                     except Exception:
                         pass
+                # Gather interface statistics and hostapd service status
+                stats = ''
+                service_enabled = False
+                service_active = False
+                try:
+                    result = subprocess.run(['iwconfig', iface], capture_output=True, text=True, timeout=2)
+                    stats = result.stdout or result.stderr
+                except Exception:
+                    stats = 'Unable to retrieve interface statistics'
+                try:
+                    en = subprocess.run(['systemctl', 'is-enabled', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
+                    service_enabled = en.stdout.strip() == 'enabled'
+                except Exception:
+                    service_enabled = False
+                try:
+                    act = subprocess.run(['systemctl', 'is-active', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
+                    service_active = act.stdout.strip() == 'active'
+                except Exception:
+                    service_active = False
                 interfaces.append({
                     'name': iface,
                     'ssid': ssid,
                     'hw_mode': hw_mode,
-                    'wpa_passphrase': wpa_passphrase
+                    'wpa_passphrase': wpa_passphrase,
+                    'stats': stats,
+                    'service_enabled': service_enabled,
+                    'service_active': service_active
                 })
     return render_template('wifi/index.html', interfaces=interfaces, hw_modes=HW_MODES)
 
@@ -55,6 +78,28 @@ def save(iface):
     net_dir = '/sys/class/net'
     if not os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
         abort(404)
+    # Determine requested action: service management or configuration save
+    action = request.form.get('action')
+    if action in ['enable', 'disable', 'restart']:
+        service = f'hostapd@{iface}'
+        try:
+            if action == 'enable':
+                cmd = ['systemctl', 'enable', '--now', service]
+                action_str = 'enabled and started'
+            elif action == 'disable':
+                cmd = ['systemctl', 'disable', '--now', service]
+                action_str = 'disabled and stopped'
+            else:  # restart
+                cmd = ['systemctl', 'restart', service]
+                action_str = 'restarted'
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                flash(f'Service {service} {action_str} successfully', 'success')
+            else:
+                flash(f'Failed to {action} service {service}: {result.stderr or result.stdout}', 'danger')
+        except Exception as e:
+            flash(f'Error managing service {service}: {e}', 'danger')
+        return redirect(url_for('wifi.index'))
     # Get form values
     ssid = request.form.get('ssid', '').strip()
     hw_mode = request.form.get('hw_mode', '').strip()
