@@ -8,22 +8,56 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/bootstrap.min.css') }}">
   <!-- Volt theme CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/volt.css') }}">
-  <!-- Border0 light theme CSS -->
-  <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
-  <!-- Border0 dark mode overrides -->
-  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}" disabled>
-  <!-- Sidebar menu items bold -->
+  <!-- Sidebar menu items bold and theme links -->
   <style>
+    /* Add spacing below the sidebar header */
+    #sidebar .list-group {
+      padding-top: 1rem;
+    }
     #sidebar .list-group-item {
       font-weight: 600;
     }
+    /* Border0 branding: yellow top bars */
+    .sidebar-heading {
+      background-color: #F9B300;
+      color: #000;
+    }
+    .navbar.border0 {
+      background-color: #F9B300;
+    }
+    .navbar.border0 .btn-outline-secondary {
+      color: #000 !important;
+    }
   </style>
+  <!-- Border0 light/dark theme CSS -->
+  <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
+  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}" disabled>
   {% block head %}{% endblock %}
+  <!-- Custom theming overrides -->
+  <style>
+    /* Brand title color (always white for visibility) */
+    .navbar.border0 .navbar-brand span {
+      color: #fff !important;
+    }
+    /* Sidebar header dark-mode override */
+    html[data-theme="dark"] .sidebar-heading {
+      background-color: transparent !important;
+      color: #fff !important;
+    }
+    /* Theme toggle button styling in dark mode */
+    html[data-theme="dark"] #theme-toggle {
+      background-color: #F9B300 !important;
+      border-color: #F9B300 !important;
+      color: #fff !important;
+    }
+  </style>
 </head>
 <body>
-  <div class="d-flex" style="height: 100vh;">
+    <div class="d-flex" style="height: 100vh;">
     <nav id="sidebar" class="bg-light border-end" style="width: 250px; overflow-y: auto;">
-      <div class="sidebar-heading p-3">Gateway Admin</div>
+      <div class="sidebar-heading p-3 d-flex align-items-center justify-content-center">
+        <img src="{{ url_for('static', filename='border0/logo.svg') }}" alt="Border0" height="32">
+      </div>
       <div class="list-group list-group-flush">
         <a href="{{ url_for('home.index') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'home.index' %}active{% endif %}">Home</a>
         <a href="{{ url_for('wifi.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wifi.') %}active{% endif %}">Wi-Fi Config</a>
@@ -38,10 +72,13 @@
       </div>
     </nav>
     <div class="flex-grow-1 d-flex flex-column">
-      <nav class="navbar navbar-expand navbar-light bg-light border-bottom">
+      <nav class="navbar navbar-expand navbar-light border-bottom border0">
         <div class="container-fluid">
-          <button class="btn btn-outline-secondary me-3" id="menu-toggle">☰</button>
-          <a class="navbar-brand" href="{{ url_for('home.index') }}">Gateway Admin Panel</a>
+      <button class="btn btn-outline-secondary me-3" id="menu-toggle">☰</button>
+          <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home.index') }}" style="position:absolute; left:50%; transform:translateX(-50%);">
+            <img src="{{ url_for('static', filename='border0/logo.svg') }}" alt="Border0" height="24" class="me-2">
+            <span>Gateway Admin Panel</span>
+          </a>
           <!-- Theme toggle -->
           <button class="btn btn-outline-secondary btn-sm ms-auto" id="theme-toggle">Dark Mode</button>
         </div>
@@ -64,8 +101,6 @@
   <script src="{{ url_for('static', filename='volt/js/bootstrap.bundle.min.js') }}"></script>
   <!-- Volt theme JS -->
   <script src="{{ url_for('static', filename='volt/js/volt.js') }}"></script>
-  <!-- Border0 client JS -->
-  <script type="module" src="{{ url_for('static', filename='border0/border0.js') }}" crossorigin></script>
   <script>
     // Sidebar toggle
     document.getElementById('menu-toggle').addEventListener('click', function(e) {
@@ -97,7 +132,7 @@
         const current = localStorage.getItem('theme') || 'light';
         setTheme(current === 'light' ? 'dark' : 'light');
       });
-      // Initialize theme
+      // Initialize theme on load
       const saved = localStorage.getItem('theme') || 'light';
       setTheme(saved);
     })();
