@@ -61,3 +61,8 @@ html[data-theme="dark"] .table > tbody > tr > td {
 html[data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > td {
   background-color: #30343a !important;
 }
+/* Ensure exit nodes table text is fully visible in dark mode */
+html[data-theme="dark"] .exit-nodes-table th,
+html[data-theme="dark"] .exit-nodes-table td {
+  color: #ffffff !important;
+}
