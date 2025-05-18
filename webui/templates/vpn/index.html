@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>border0 config</h1>
+<h1>Border0 Organization Config</h1>
 
 <!-- Organization setup -->
 <div class="card mb-4">
@@ -59,4 +59,66 @@
     </div>
   </div>
 {%- endif %}
+{% if token_exists %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2>Exit Node Selection</h2>
+      {% if current_exit_node %}
+        <p>Currently selected exit node: <strong>{{ current_exit_node }}</strong></p>
+      {% else %}
+        <p>No exit node selected.</p>
+      {% endif %}
+      {% if exitnode_error %}
+        <div class="alert alert-danger">Error fetching exit nodes: {{ exitnode_error }}</div>
+      {% endif %}
+      <form method="post">
+        <div class="mb-3">
+          <label for="exit_node" class="form-label">Select Exit Node</label>
+          <select class="form-select" id="exit_node" name="exit_node">
+            <option value="none" {% if not current_exit_node %}selected{% endif %}>None</option>
+            {% for en in exit_nodes %}
+              <option value="{{ en.name }}" {% if en.name == current_exit_node %}selected{% endif %}>
+                {{ en.name }} ({{ en.public_ips[0].metadata.country_name }}, {{ en.public_ips[0].metadata.city_name }}, {{ en.public_ips[0].metadata.isp }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" name="action" value="set_exitnode" class="btn btn-primary">Save Exit Node</button>
+      </form>
+      <div class="mt-4">
+        <h3>Available Exit Nodes</h3>
+        <table class="table table-striped">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Peer</th>
+              <th>DNS Name</th>
+              <th>IPs</th>
+              <th>Location</th>
+              <th>ISP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for en in exit_nodes %}
+            <tr>
+              <td>{{ en.name }}</td>
+              <td>{{ en.peer_name }}</td>
+              <td>{{ en.dns_name }}</td>
+              <td>
+                {% for ip in en.public_ips %}{{ ip.ip_address }}<br>{% endfor %}
+              </td>
+              <td>
+                {% for ip in en.public_ips %}{{ ip.metadata.city_name }}, {{ ip.metadata.region_name }}, {{ ip.metadata.country_name }}<br>{% endfor %}
+              </td>
+              <td>
+                {% for ip in en.public_ips %}{{ ip.metadata.isp }}<br>{% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endif %}
 {% endblock %}

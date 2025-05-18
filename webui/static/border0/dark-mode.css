@@ -42,3 +42,22 @@ html[data-theme="dark"] .form-select:focus {
   border-color: #6c757d !important;
   box-shadow: 0 0 0 0.25rem rgba(108,117,125,0.25) !important;
 }
+/* Dark mode table styling */
+html[data-theme="dark"] .table {
+  color: #d1d8e0 !important;
+  border-color: #3a3d42 !important;
+}
+html[data-theme="dark"] .table th,
+html[data-theme="dark"] .table td {
+  border-color: #3a3d42 !important;
+}
+html[data-theme="dark"] .table thead th {
+  background-color: #30343a !important;
+  color: #d1d8e0 !important;
+}
+html[data-theme="dark"] .table > tbody > tr > td {
+  background-color: #20252b !important;
+}
+html[data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > td {
+  background-color: #30343a !important;
+}

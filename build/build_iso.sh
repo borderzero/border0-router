@@ -17,7 +17,7 @@ BORDER0_IMG="../iso/2024-11-19-raspios-bookworm-arm64-lite-border0-${TIMESTAMP}.
 SYSTEMD_UNITS_SRC="./templates"
 
 # List additional packages to install (space separated)
-EXTRA_PKGS="hostapd iptables dnsmasq tcpdump"
+EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq "
 # List unwanted packages to remove (space separated)
 REMOVE_PKGS="modemmanager rsyslog"
 # ==================================
@@ -93,13 +93,9 @@ sudo curl https://download.border0.com/linux_arm64/border0 \
     -o "${MNT_ROOT}/usr/local/bin/border0" \
     && chmod +x "${MNT_ROOT}/usr/local/bin/border0"
 
-# copy ../ui into opt/border0/ui
-echo "Copying webui into the image..."
-cp -rv ../webui/ui/* "${MNT_ROOT}/opt/border0/webui/"
 
-echo "Copying webui binary into the image..."
-cp -vr ../webui/bin/webui_aarm64.bin "${MNT_ROOT}/opt/border0/webui/webui"
-chmod +x "${MNT_ROOT}/opt/border0/webui/webui"
+echo "Copying webui directory into the image..."
+cp -vr ../webui "${MNT_ROOT}/opt/border0/webui"
 
 # copy ../templates into opt/border0/templates
 echo "Copying templates into the image..."
@@ -110,6 +106,8 @@ cp -rv "./templates" "${MNT_ROOT}/opt/border0/templates"
 echo "Copying systemd unit files into the image..."
 cp -v "${SYSTEMD_UNITS_SRC}/border0-webui.service" "${MNT_ROOT}/etc/systemd/system/border0-webui.service"
 cp -v "${SYSTEMD_UNITS_SRC}/border0-device.service" "${MNT_ROOT}/etc/systemd/system/border0-device.service"
+cp -v "${SYSTEMD_UNITS_SRC}/border0-metrics.service" "${MNT_ROOT}/etc/systemd/system/border0-metrics.service"
+
 
 # 5. Create a modification script inside the chroot.
 CHROOT_SCRIPT="${MNT_ROOT}/tmp/chroot_mod.sh"
@@ -125,7 +123,7 @@ apt-get install -y PACKAGE_LIST_PLACEHOLDER
 # Remove unwanted packages.
 apt-get remove -y UNWANTED_PKGS_PLACEHOLDER
 
-cp /opt/border0/templates/hostapd.conf.default /etc/hostapd/hostapd.conf
+cp /opt/border0/templates/hostapd.conf.default /etc/hostapd/wlan0.conf
 
 apt-get purge -y man-db manpages manpages-posix libx11-doc
 
@@ -156,12 +154,16 @@ allow-hotplug wlan0
 auto wlan0
 iface wlan0 inet static
     pre-up /usr/sbin/rfkill unblock wlan
-    post-up /usr/sbin/dnsmasq -I lo -i wlan0 --bind-interfaces -K -z -F wlan0,192.168.69.10,192.168.69.250,5m --dhcp-option=3,192.168.69.1 --dhcp-option=6,192.168.69.1 --address=/gateway.border0/10.10.10.10 --log-dhcp --log-facility=/var/log/dnsmasq_wlan0.log
-    address 192.168.69.1
+    post-up /usr/sbin/dnsmasq -I lo -i wlan0 --bind-interfaces -K -z -F wlan0,192.168.42.10,192.168.42.250,5m --dhcp-option=3,192.168.42.1 --dhcp-option=6,192.168.42.1 --address=/gateway.border0/10.10.10.10 --log-dhcp --log-facility=/var/log/dnsmasq_wlan0.log
+    post-up /sbin/iptables -t nat -A POSTROUTING -s 192.168.42.0/24 -o eth+ -j MASQUERADE
+    post-up /sbin/iptables -t nat -A POSTROUTING -s 192.168.42.0/24 -o utun+ -j MASQUERADE
+    post-down /sbin/iptables -t nat -D POSTROUTING -s 192.168.42.0/24 -o eth+ -j MASQUERADE
+    post-down /sbin/iptables -t nat -D POSTROUTING -s 192.168.42.0/24 -o utun+ -j MASQUERADE
+    address 192.168.42.1
     netmask 255.255.255.0
-    # gateway 192.168.69.1
+    # gateway 192.168.42.1
     # dns-nameservers 208.67.220.220
-    broadcast 192.168.69.255
+    broadcast 192.168.42.255
 """ > /etc/network/interfaces.d/wlan0.conf
 
 echo """
@@ -186,19 +188,26 @@ rm -rf /usr/share/info/*
 
 # unmask hostapd
 systemctl unmask hostapd
-systemctl enable hostapd
+systemctl stop hostapd
+systemctl disable hostapd.service
+systemctl enable --now hostapd@wlan0
 
 # enable dnsmasq
 systemctl disable dnsmasq
 
 systemctl enable border0-webui
 systemctl enable border0-device
+systemctl enable border0-metrics
 
 # disable useless services
 systemctl disable triggerhappy.service
 systemctl disable avahi-daemon.service
 systemctl disable rpcbind.service
 systemctl disable bluetooth.service
+
+# enable forwarding
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 
 
 

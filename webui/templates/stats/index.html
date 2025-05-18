@@ -8,9 +8,9 @@
   <label class="me-2 align-self-center">Time Range:</label>
   <div class="btn-group" role="group" aria-label="Time range">
     <button type="button" class="btn btn-outline-primary" data-mode="live">Live</button>
-    <button type="button" class="btn btn-outline-primary" data-hours="1">1H</button>
+    <button type="button" class="btn btn-outline-primary active" data-hours="1">1H</button>
     <button type="button" class="btn btn-outline-primary" data-hours="4">4H</button>
-    <button type="button" class="btn btn-outline-primary active" data-hours="24">24H</button>
+    <button type="button" class="btn btn-outline-primary" data-hours="24">24H</button>
   </div>
 </div>
 <div class="row">
@@ -57,8 +57,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const charts = {};
   // Polling interval in ms
   const pollIntervalMs = 5000;
-  // Time window in hours (default 24)
-  let hoursWindow = 24;
+  // Time window in hours (default 1)
+  let hoursWindow = 1;
   // Max points allowed (history mode only)
   let maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
   // Display mode: 'history' or 'live'
@@ -154,13 +154,19 @@ document.addEventListener('DOMContentLoaded', function() {
         mode = 'history';
         hoursWindow = parseFloat(this.dataset.hours);
         maxPoints = Math.ceil(hoursWindow * 3600 * 1000 / pollIntervalMs);
-        clearCharts(); fetchHistory();
+        clearCharts();
+        fetchHistory();
+        // immediate update when switching to history
+        fetchData();
       }
     });
   });
 
   // Start with default window
-  clearCharts(); fetchHistory();
+  clearCharts();
+  fetchHistory();
+  // Immediate initial update
+  fetchData();
   // Start polling for new data
   setInterval(fetchData, pollIntervalMs);
 });

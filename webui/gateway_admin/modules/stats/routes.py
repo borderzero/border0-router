@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, jsonify, request
 from flask_login import login_required
+import os
 import psutil
 import time
 import json
@@ -40,14 +41,24 @@ def data():
     memory = psutil.virtual_memory().percent
     disk = psutil.disk_usage('/').percent
 
-    return jsonify({
+    # Prepare record for response and logging
+    record = {
         'time': int(now * 1000),
         'cpu': cpu,
         'memory': memory,
         'disk': disk,
         'net_sent': sent_rate,
         'net_recv': recv_rate
-    })
+    }
+    # Append to metrics log for historical data
+    try:
+        log_path = Config.METRICS_LOG_PATH
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a') as f:
+            f.write(json.dumps(record) + '\n')
+    except Exception:
+        pass
+    return jsonify(record)
     
 @stats_bp.route('/history')
 @login_required
