@@ -10,7 +10,7 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
-    <form method="post" action="{{ url_for('lan.index') }}">
+    <form id="lan-form" method="post" action="{{ url_for('lan.index') }}">
       <div class="mb-3">
         <label for="iface-select" class="form-label">Select LAN Interface</label>
         <select id="iface-select" name="iface" class="form-select" required>
@@ -21,31 +21,22 @@
         </select>
       </div>
       <div class="mb-3">
-        <label for="address" class="form-label">IP Address</label>
-        <input type="text" class="form-control" id="address" name="address"
-               value="{{ static_cfg.get('address','') }}" required>
+        <label for="network" class="form-label">Network Address</label>
+        <input type="text" pattern="^(?:\d{1,3}\.){3}\d{1,3}$" class="form-control" id="network" name="network"
+               value="{{ static_cfg.get('network','') }}" required
+               title="Enter a valid IPv4 network address, e.g., 192.168.1.0">
       </div>
-      <div class="mb-3">
-        <label for="netmask" class="form-label">Netmask</label>
-        <input type="text" class="form-control" id="netmask" name="netmask"
-               value="{{ static_cfg.get('netmask','') }}" required>
-      </div>
-      <div class="mb-3">
-        <label for="gateway" class="form-label">Gateway</label>
-        <input type="text" class="form-control" id="gateway" name="gateway"
-               value="{{ static_cfg.get('gateway','') }}">
+      <div class="form-text mb-3">
+        Allowed private /24 subnets: 10.x.x.0, 172.16.x.0–172.31.x.0, or 192.168.x.0.
+        The router's LAN IP and gateway will be the .1 address in the subnet.
       </div>
       <div class="mb-3">
         <label for="dns" class="form-label">DNS Nameservers (space-separated)</label>
         <input type="text" class="form-control" id="dns" name="dns"
                value="{{ static_cfg.get('dns-nameservers','') }}">
       </div>
-      <div class="mb-3">
-        <label for="broadcast" class="form-label">Broadcast</label>
-        <input type="text" class="form-control" id="broadcast" name="broadcast"
-               value="{{ static_cfg.get('broadcast','') }}">
-      </div>
-      <button type="submit" class="btn btn-primary">Save LAN Configuration</button>
+      <button type="submit" name="action" value="save" class="btn btn-primary">Save LAN Configuration</button>
+      <button type="submit" name="action" value="restart" class="btn btn-secondary ms-2">Restart LAN Interface</button>
     </form>
   </div>
   <div class="col-md-6">
@@ -62,5 +53,41 @@
       </div>
     </div>
   </div>
-</div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('lan-form').addEventListener('submit', function(e) {
+    var net = document.getElementById('network').value.trim();
+    var parts = net.split('.');
+    if (parts.length !== 4) {
+      e.preventDefault();
+      alert('Network must have 4 octets.');
+      return;
+    }
+    for (var i = 0; i < 4; i++) {
+      var oct = parseInt(parts[i], 10);
+      if (isNaN(oct) || oct < 0 || oct > 255) {
+        e.preventDefault();
+        alert('Invalid octet in network address: ' + parts[i]);
+        return;
+      }
+    }
+    // Ensure network is in RFC1918 private ranges
+    var first = parseInt(parts[0], 10);
+    var second = parseInt(parts[1], 10);
+    if (!(first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168))) {
+      e.preventDefault();
+      alert('Network must be within RFC1918 private ranges: 10.x.x.x, 172.16.x.x–172.31.x.x, or 192.168.x.x');
+      return;
+    }
+    // Ensure network is a /24 (last octet == 0)
+    var last = parseInt(parts[3], 10);
+    if (last !== 0) {
+      e.preventDefault();
+      alert('Network must end in .0 for a /24 subnet');
+      return;
+    }
+  });
+</script>
 {% endblock %}

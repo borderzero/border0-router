@@ -46,33 +46,44 @@ def index():
         current_iface = None
 
     if request.method == 'POST':
+        action = request.form.get('action')
         iface = request.form.get('iface')
+        # Restart interface
+        if action == 'restart':
+            if iface not in interfaces:
+                flash('Invalid interface selected for LAN', 'warning')
+                return redirect(url_for('lan.index'))
+            try:
+                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
+                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
+                flash(f'LAN interface {iface} restarted', 'success')
+            except Exception as e:
+                flash(f'Failed to restart LAN interface: {e}', 'danger')
+            return redirect(url_for('lan.index'))
+        # Save new configuration
         if iface not in interfaces:
             flash('Invalid interface selected for LAN', 'warning')
             return redirect(url_for('lan.index'))
-        # Read static form fields
-        address = request.form.get('address', '').strip()
-        netmask = request.form.get('netmask', '').strip()
-        gateway = request.form.get('gateway', '').strip()
+        # Read form fields: network (fixed /24) and optional DNS
+        network_str = request.form.get('network', '').strip()
         dns = request.form.get('dns', '').strip()
-        broadcast = request.form.get('broadcast', '').strip()
-        # Validate required fields
-        if not address or not netmask:
-            flash('Address and netmask are required for LAN', 'warning')
+        if not network_str:
+            flash('Network is required for LAN', 'warning')
             return redirect(url_for('lan.index'))
         try:
-            ipaddress.IPv4Address(address)
-            ipaddress.IPv4Address(netmask)
+            network = ipaddress.IPv4Network(f"{network_str}/24", strict=True)
         except Exception:
-            flash('Invalid LAN IP address or netmask', 'warning')
+            flash('Invalid LAN network; must be a valid /24 network address ending in .0', 'warning')
             return redirect(url_for('lan.index'))
-        # Optional fields validation
-        if gateway:
-            try:
-                ipaddress.IPv4Address(gateway)
-            except Exception:
-                flash('Invalid LAN gateway address', 'warning')
-                return redirect(url_for('lan.index'))
+        # Only allow RFC1918 private subnets
+        if not network.is_private:
+            flash('Subnet must be within RFC1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)', 'warning')
+            return redirect(url_for('lan.index'))
+        address = str(network.network_address + 1)
+        netmask = '255.255.255.0'
+        gateway = address
+        broadcast = str(network.broadcast_address)
+        # Validate optional DNS
         if dns:
             for ip in dns.split():
                 try:
@@ -80,14 +91,7 @@ def index():
                 except Exception:
                     flash('Invalid LAN DNS address', 'warning')
                     return redirect(url_for('lan.index'))
-        if broadcast:
-            try:
-                ipaddress.IPv4Address(broadcast)
-            except Exception:
-                flash('Invalid LAN broadcast address', 'warning')
-                return redirect(url_for('lan.index'))
-        # Build config file
-        # Render static LAN config via Jinja template
+        # Write configuration file
         cfg_dir = '/etc/network/interfaces.d'
         os.makedirs(cfg_dir, exist_ok=True)
         cfg_file = os.path.join(cfg_dir, f'{iface}.conf')
@@ -105,7 +109,6 @@ def index():
             content = render_template(template_name, **context)
             with open(cfg_file, 'w') as f:
                 f.write(content)
-            # Save selected LAN interface
             os.makedirs(os.path.dirname(lan_iface_path), exist_ok=True)
             with open(lan_iface_path, 'w') as f:
                 f.write(iface + '\n')
@@ -120,13 +123,29 @@ def index():
         if os.path.isfile(cfg_file):
             try:
                 text = open(cfg_file).read()
-                # Parse static only
-                for key in ['address', 'netmask', 'gateway', 'dns-nameservers', 'broadcast']:
-                    m = re.search(rf'^{key} (.+)', text, re.M)
-                    if m:
-                        static_cfg[key] = m.group(1).strip()
+                # Parse address and netmask
+                m = re.search(r'^\s*address\s+(.+)', text, re.M)
+                if m:
+                    static_cfg['address'] = m.group(1).strip()
+                m = re.search(r'^\s*netmask\s+(.+)', text, re.M)
+                if m:
+                    static_cfg['netmask'] = m.group(1).strip()
+                # Parse DNS nameservers (commented or not)
+                m = re.search(r'^\s*#?dns-nameservers\s+(.+)', text, re.M)
+                if m:
+                    static_cfg['dns-nameservers'] = m.group(1).strip()
             except Exception:
                 pass
+    # Compute network and prefix for display
+    try:
+        net = ipaddress.IPv4Network(f"{static_cfg['address']}/{static_cfg['netmask']}", strict=False)
+        static_cfg['network'] = str(net.network_address)
+        static_cfg['prefix'] = net.prefixlen
+        static_cfg['gateway'] = str(net.network_address + 1)
+        static_cfg['broadcast'] = str(net.broadcast_address)
+    except Exception:
+        static_cfg['network'] = ''
+        static_cfg['prefix'] = 24
 
     # Retrieve interface statistics
     stats = ''

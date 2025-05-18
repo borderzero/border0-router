@@ -39,7 +39,19 @@ def index():
         current_iface = None
 
     if request.method == 'POST':
+        action = request.form.get('action')
         iface = request.form.get('iface')
+        if action == 'restart':
+            if iface not in interfaces:
+                flash('Invalid interface selected', 'warning')
+                return redirect(url_for('wan.index'))
+            try:
+                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
+                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
+                flash(f'WAN interface {iface} restarted', 'success')
+            except Exception as e:
+                flash(f'Failed to restart WAN interface: {e}', 'danger')
+            return redirect(url_for('wan.index'))
         if iface not in interfaces:
             flash('Invalid interface selected', 'warning')
             return redirect(url_for('wan.index'))
