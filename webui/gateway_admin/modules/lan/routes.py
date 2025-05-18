@@ -133,7 +133,7 @@ def index():
     if current_iface:
         try:
             result = subprocess.run(
-                ['ip', '-s', 'link', 'show', 'dev', current_iface],
+                ['ip', '-s', 'address', 'show', 'dev', current_iface],
                 capture_output=True, text=True, timeout=2
             )
             stats = result.stdout or result.stderr

@@ -69,6 +69,10 @@
       <hr class="my-2 mx-3">
       <div class="list-group list-group-flush mt-auto">
         <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action">Logout</a>
+        <hr class="mx-3 my-2" style="border-color: transparent;">
+        <form method="post" action="{{ url_for('auth.reboot') }}" style="margin:0;">
+          <button type="submit" class="list-group-item list-group-item-action">Reboot</button>
+        </form>
       </div>
     </nav>
     <div class="flex-grow-1 d-flex flex-column">

@@ -135,43 +135,55 @@ def index():
                 flash(f'Error setting exit node: {e}', 'danger')
             return redirect(url_for('vpn.index'))
 
-    # Determine status for rendering
+    # Determine border0-device service status
+    try:
+        result = subprocess.run(
+            ['systemctl', 'is-active', 'border0-device.service'],
+            capture_output=True, text=True, timeout=5
+        )
+        device_status = result.stdout.strip()
+    except Exception as e:
+        device_status = f'error: {e}'
+    status_map = {
+        'active': 'success',
+        'inactive': 'secondary',
+        'failed': 'danger',
+        'activating': 'info',
+        'deactivating': 'warning'
+    }
+    device_status_badge = status_map.get(device_status, 'secondary')
+    service_active = (device_status == 'active')
+
+    # Determine token existence (may be used for showing upload form)
     token_exists = os.path.isfile(token_file)
-    # Fetch exit node options and current selection
+    # Fetch current exit node and list of available exit nodes
     exit_nodes = []
     current_exit_node = ''
     exitnode_error = None
-    if token_exists:
-        state = None
-        state_file = os.path.join(os.path.dirname(os.path.expanduser(Config.BORDER0_TOKEN_PATH)), 'device.state.yaml')
+    state = None
+    if service_active:
+        # Determine current exit node via state
         try:
-            mtime = os.path.getmtime(state_file)
-            if time.time() - mtime < 3600:
-                import yaml
-                with open(state_file) as f:
-                    state = yaml.safe_load(f)
-        except Exception:
-            state = None
-        if state is None:
-            try:
-                result = subprocess.run(
-                    [Config.BORDER0_CLI_PATH, 'node', 'state', 'show', '--json'],
-                    capture_output=True, text=True, timeout=20
-                )
-                if result.returncode == 0:
-                    state = json.loads(result.stdout)
-                else:
-                    exitnode_error = result.stderr or result.stdout
-            except Exception as e:
-                exitnode_error = str(e)
+            result = subprocess.run(
+                [Config.BORDER0_CLI_PATH, 'node', 'state', 'show', '--json'],
+                capture_output=True, text=True, timeout=20
+            )
+            if result.returncode == 0:
+                state = json.loads(result.stdout)
+                current_exit_node = state.get('exit_node', '') or ''
+            else:
+                exitnode_error = result.stderr or result.stdout
+        except Exception as e:
+            exitnode_error = str(e)
+        # Populate exit nodes directly from state
         if state:
-            current_exit_node = state.get('exit_node', '') or ''
             for peer in state.get('peers', []):
+                peer_name = peer.get('name')
                 for service in peer.get('services', []):
                     if service.get('type') == 'exit_node':
                         exit_nodes.append({
                             'name': service.get('name'),
-                            'peer_name': peer.get('name'),
+                            'peer_name': peer_name,
                             'dns_name': service.get('dns_name'),
                             'public_ips': service.get('public_ips', [])
                         })
@@ -180,7 +192,10 @@ def index():
         org=org,
         login_url=login_url,
         token_exists=token_exists,
+        service_active=service_active,
         exit_nodes=exit_nodes,
         current_exit_node=current_exit_node,
-        exitnode_error=exitnode_error
+        exitnode_error=exitnode_error,
+        device_status=device_status,
+        device_status_badge=device_status_badge
     )

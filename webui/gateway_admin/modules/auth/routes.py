@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
+import subprocess
 from ...extensions import login_manager
 
 auth_bp = Blueprint('auth', __name__)
@@ -34,3 +35,13 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('auth.login'))
+@auth_bp.route('/reboot', methods=['POST'])
+@login_required
+def reboot():
+    """Reboot the operating system via systemctl."""
+    try:
+        subprocess.Popen(['systemctl', 'reboot'])
+        flash('Rebooting system...', 'info')
+    except Exception as e:
+        flash(f'Failed to reboot system: {e}', 'danger')
+    return redirect(url_for('home.index'))

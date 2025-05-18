@@ -2,18 +2,35 @@
 {% block content %}
 <h1>Border0 Organization Config</h1>
 
-<!-- Organization setup -->
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" class="row g-3">
+<!-- Organization setup and device service status -->
+<div class="row mb-4">
   <div class="col-md-8">
-        <label for="org" class="form-label">Organization Name</label>
-        <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30">
+    <div class="card h-100">
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          <div class="col-md-8">
+            <label for="org" class="form-label">Organization Name</label>
+            <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30">
+          </div>
+          <div class="col-md-4 align-self-end">
+            <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
+          </div>
+        </form>
       </div>
-      <div class="col-md-4 align-self-end">
-        <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header"><strong>Border0 Device Service</strong> Status</div>
+      <div class="card-body d-flex flex-column justify-content-center align-items-center">
+        <span class="badge bg-{{ device_status_badge }} text-capitalize">{{ device_status }}</span>
+        {% if org %}
+        <form method="post" class="mt-3">
+          <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
+        </form>
+        {% endif %}
       </div>
-    </form>
+    </div>
   </div>
 </div>
 
@@ -37,15 +54,12 @@
   <div class="mb-4">
     <form method="post" class="d-flex gap-2">
       <button type="submit" name="action" value="login" class="btn btn-primary">Login to border0</button>
-      {% if token_exists %}
-        <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart border0 service</button>
-      {% endif %}
     </form>
   </div>
 {% endif %}
 
 <!-- Token upload and VPN installation -->
-{% if not token_exists %}
+{%- if not org %}
   <div class="card mb-4">
     <div class="card-body">
       <p>No Border0 client token found. Please Configure the Organization above or paste your client token below:</p>
@@ -59,7 +73,7 @@
     </div>
   </div>
 {%- endif %}
-{% if token_exists %}
+{% if service_active %}
   <div class="card mb-4">
     <div class="card-body">
       <h2>Exit Node Selection</h2>
@@ -78,7 +92,7 @@
             <option value="none" {% if not current_exit_node %}selected{% endif %}>None</option>
             {% for en in exit_nodes %}
               <option value="{{ en.name }}" {% if en.name == current_exit_node %}selected{% endif %}>
-                {{ en.name }} ({{ en.public_ips[0].metadata.country_name }}, {{ en.public_ips[0].metadata.city_name }}, {{ en.public_ips[0].metadata.isp }})
+                {{ en.name }}
               </option>
             {% endfor %}
           </select>

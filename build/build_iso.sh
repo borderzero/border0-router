@@ -189,6 +189,13 @@ iface dummy0 inet static
     netmask 255.255.255.255
 """ > /etc/network/interfaces.d/dummy0.conf
 
+mkdir -p /etc/sysconfig
+echo """
+SHELL=/bin/bash
+LOGNAME=root
+HOME=/root
+USER=root
+""" > /etc/sysconfig/border0-gw
 
 
 echo "Cleaning out APT caches..."
