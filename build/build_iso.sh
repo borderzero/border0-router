@@ -87,15 +87,29 @@ mkdir -p "${MNT_ROOT}/opt/border0"
 mkdir -p "${MNT_ROOT}/opt/border0/etc"
 mkdir -p "${MNT_ROOT}/opt/border0/bin"
 mkdir -p "${MNT_ROOT}/opt/border0/sbin"
-mkdir -p "${MNT_ROOT}/opt/border0/webui"
 
-sudo curl https://download.border0.com/linux_arm64/border0 \
-    -o "${MNT_ROOT}/usr/local/bin/border0" \
-    && chmod +x "${MNT_ROOT}/usr/local/bin/border0"
+BORDER0_BIN="${MNT_ROOT}/usr/local/bin/border0"
+BORDER0_CACHE="../iso/border0"
 
+# Create cache directory if it doesn't exist
+mkdir -p "$(dirname "${BORDER0_CACHE}")"
+
+# Download only if not in cache
+if [ ! -f "${BORDER0_CACHE}" ]; then
+    echo "Downloading border0 binary to cache..."
+    curl -s https://download.border0.com/linux_arm64/border0 -o "${BORDER0_CACHE}"
+    chmod +x "${BORDER0_CACHE}"
+fi
+
+# Copy from cache to target location
+cp "${BORDER0_CACHE}" "${BORDER0_BIN}"
+chmod +x "${BORDER0_BIN}"
 
 echo "Copying webui directory into the image..."
-cp -vr ../webui "${MNT_ROOT}/opt/border0/webui"
+cp -vr ../webui "${MNT_ROOT}/opt/border0/"
+
+echo "copy requirements.txt into the image..."
+cp -v ../requirements.txt "${MNT_ROOT}/opt/border0/"
 
 # copy ../templates into opt/border0/templates
 echo "Copying templates into the image..."
@@ -177,46 +191,39 @@ iface dummy0 inet static
 
 
 
-# Clean out APT caches
+echo "Cleaning out APT caches..."
 apt-get autoremove -y
 apt-get clean
 
-# Remove any leftover files
+echo "Removing any leftover files..."
 rm -rf /usr/share/man/*
 rm -rf /usr/share/doc/*
 rm -rf /usr/share/info/*
 
-# unmask hostapd
-systemctl unmask hostapd
-systemctl stop hostapd
-systemctl disable hostapd.service
-systemctl enable --now hostapd@wlan0
-
-# enable dnsmasq
-systemctl disable dnsmasq
-
-systemctl enable border0-webui
-systemctl enable border0-device
-systemctl enable border0-metrics
-
-# disable useless services
-systemctl disable triggerhappy.service
-systemctl disable avahi-daemon.service
-systemctl disable rpcbind.service
-systemctl disable bluetooth.service
 
 # enable forwarding
 echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
 echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 
 
-
+echo "Copying authorized_keys into the image..."
 mkdir -p /root/.ssh
 echo "# $(date)" >> /root/.ssh/authorized_keys
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFWzhiL+gabtc8WyJILjDei4KX8uXD0Y1wPAdt8/tCaB greg@xps15" >> /root/.ssh/authorized_keys
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILf5v3Md3f+pnNQ96XZtBvdok44Ej7UuzPTB8XrhXtk2 greg@XPS15" >> /root/.ssh/authorized_keys
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDmuPYG2E186hP4tKgqW6cmOOtr3SqkIXKj2PJSjGUd+ greg+rnd@XPS15" >> /root/.ssh/authorized_keys
 
+mkdir -p /home/pi/.ssh
+cat /root/.ssh/authorized_keys >> /home/pi/.ssh/authorized_keys
+chown -R pi:pi /home/pi/.ssh
+
+
+echo "Running webui setup script..."
+cd /opt/border0/webui
+./setup.sh
+
+
+echo "done"
 EOF
 
 # Replace placeholders with actual package lists.
@@ -229,10 +236,27 @@ chmod +x "${CHROOT_SCRIPT}"
 echo "Entering chroot to modify the image..."
 chroot "${MNT_ROOT}" /bin/bash /tmp/chroot_mod.sh
 
-# # if you want to manually chroot into the image, you can do so with the following command:
-# chroot "${MNT_ROOT}" /bin/bash
-# # update the command prompt to be more informative and indicate youre in chroot
-# PS1='(chroot) \u@\h:\w\$ '
+echo "Enabling systemd units in the image..."
+systemctl --root="${MNT_ROOT}" unmask hostapd
+systemctl --root="${MNT_ROOT}" disable hostapd.service
+systemctl --root="${MNT_ROOT}" enable hostapd@wlan0
+systemctl --root="${MNT_ROOT}" disable dnsmasq
+systemctl --root="${MNT_ROOT}" enable border0-webui
+systemctl --root="${MNT_ROOT}" enable border0-device
+systemctl --root="${MNT_ROOT}" enable border0-metrics
+systemctl --root="${MNT_ROOT}" disable triggerhappy.service
+systemctl --root="${MNT_ROOT}" disable avahi-daemon.service
+systemctl --root="${MNT_ROOT}" disable rpcbind.service
+systemctl --root="${MNT_ROOT}" disable bluetooth.service
+
+
+
+
+if [ "${EDIT_CHROOT:-false}" = "true" ]; then
+    echo "Dropping into chroot shell..."
+    chroot "${MNT_ROOT}" /bin/bash
+    PS1='(chroot) \u@\h:\w\$ '
+fi
 # # and then run the modification script with the following command:
 # # /tmp/chroot_mod.sh
 
@@ -257,5 +281,12 @@ sync
 
 mv "${IMG}" "${BORDER0_IMG}"
 echo "Modified image saved as ${BORDER0_IMG}"
+
+
+if [ "${CREATE_XZ:-false}" = "true" ]; then
+    echo "Creating highly compressed image with multi-threading..."
+    xz -9 -e -k -T0 "${BORDER0_IMG}"
+    echo "Compressed image saved as ${BORDER0_IMG}.xz"
+fi
 
 echo "Image modification complete. The modified image is ready to be written to an SD card."

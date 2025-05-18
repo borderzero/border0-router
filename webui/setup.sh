@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
+echo "Setting up webui... $(pwd) $0"
+
 # Create Python virtual environment in webui/venv
 if [ ! -d "venv" ]; then
   echo "Creating virtual environment..."
