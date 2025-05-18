@@ -5,7 +5,20 @@ allow-hotplug {{ iface }}
 auto {{ iface }}
 iface {{ iface }} inet static
     pre-up /usr/sbin/rfkill unblock wlan
-    post-up /usr/sbin/dnsmasq -I lo -i {{ iface }} --bind-interfaces -K -z -F {{ iface }},{{ prefix }}.10,{{ prefix }}.250,5m --dhcp-option=3,{{ gateway }} --dhcp-option=6,{{ gateway }} --address=/gateway.border0/{{ address }} --log-dhcp --log-facility=/var/log/dnsmasq_{{ iface }}.log
+    # ensure any old dnsmasq is stopped before starting a new one
+    pre-up /usr/bin/pkill -x dnsmasq || true
+    # launch dnsmasq with DHCP and DNS forwarding
+    post-up /usr/sbin/dnsmasq -I lo -i {{ iface }} --except-interface=lo --bind-interfaces --dhcp-authoritative --pid-file=/var/run/dnsmasq_{{ iface }}.pid \
+        -F {{ iface }},{{ prefix }}.10,{{ prefix }}.250,5m \
+        --dhcp-option=3,{{ gateway }} --dhcp-option=6,{{ gateway }}{% if dns %}{% for ip in dns.split() %} --server={{ ip }}{% endfor %} --no-resolv{% endif %} \
+        --address=/gateway.border0/{{ address }} \
+        --log-dhcp --log-facility=/var/log/dnsmasq_{{ iface }}.log
+    post-up /sbin/iptables -t nat -A POSTROUTING -s {{ prefix }}.0/24 -o {{ wan_iface }} -j MASQUERADE
+    post-up /sbin/iptables -t nat -A POSTROUTING -s {{ prefix }}.0/24 -o utun+ -j MASQUERADE
+    post-down /sbin/iptables -t nat -D POSTROUTING -s {{ prefix }}.0/24 -o {{ wan_iface }} -j MASQUERADE
+    post-down /sbin/iptables -t nat -D POSTROUTING -s {{ prefix }}.0/24 -o utun+ -j MASQUERADE
+    # stop dnsmasq when the interface goes down
+    post-down /usr/bin/pkill -x dnsmasq || true
     address {{ address }}
     netmask {{ netmask }}
 {% if gateway %}    #gateway {{ gateway }}

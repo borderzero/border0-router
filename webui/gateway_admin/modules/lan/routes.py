@@ -98,7 +98,8 @@ def index():
             'netmask': netmask,
             'gateway': gateway,
             'dns': dns,
-            'broadcast': broadcast
+            'broadcast': broadcast,
+            'wan_iface': wan_iface
         }
         try:
             content = render_template(template_name, **context)
