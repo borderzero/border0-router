@@ -43,7 +43,6 @@
       </div>
     </div>
   </div>
-</div>
 <!-- Initiate login and service management -->
 {# Hide initial login form once organization is set #}
 {%- if not org %}
@@ -95,7 +94,7 @@
             <option value="none" {% if not current_exit_node %}selected{% endif %}>None</option>
             {% for en in exit_nodes %}
               <option value="{{ en.name }}" {% if en.name == current_exit_node %}selected{% endif %}>
-                {{ en.name }}
+                {{ en.name }} ({{ en.peer_name }}, {{ en.dns_name }})
               </option>
             {% endfor %}
           </select>

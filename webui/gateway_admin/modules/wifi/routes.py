@@ -3,8 +3,8 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 import subprocess
 from flask_login import login_required
 
-# Allowed hostapd hardware modes
-HW_MODES = ['a', 'b', 'g', 'ad']
+# Allowed hostapd hardware modes on Raspberry Pi (2.4 GHz g, 5 GHz a)
+HW_MODES = ['g', 'a']
 
 wifi_bp = Blueprint('wifi', __name__, url_prefix='/wifi')
 
@@ -69,7 +69,17 @@ def index():
                     'service_enabled': service_enabled,
                     'service_active': service_active
                 })
-    return render_template('wifi/index.html', interfaces=interfaces, hw_modes=HW_MODES)
+    # Friendly labels for hardware modes with typical speeds
+    hw_mode_labels = {
+        'g': '2.4 GHz (802.11g: 6/12/24/54 Mbps)',
+        'a': '5 GHz   (802.11a: 6/12/24/54 Mbps)'
+    }
+    return render_template(
+        'wifi/index.html',
+        interfaces=interfaces,
+        hw_modes=HW_MODES,
+        hw_mode_labels=hw_mode_labels
+    )
 
 @wifi_bp.route('/<iface>', methods=['POST'])
 @login_required
