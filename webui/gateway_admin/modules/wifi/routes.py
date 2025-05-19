@@ -72,7 +72,7 @@ def index():
     # Friendly labels for hardware modes with typical speeds
     hw_mode_labels = {
         'g': '2.4 GHz (802.11g: 6/12/24/54 Mbps)',
-        'a': '5 GHz   (802.11a: 6/12/24/54 Mbps)'
+        'a': '5 GHz (802.11a/n/ac: up to 866 Mbps)'
     }
     return render_template(
         'wifi/index.html',
@@ -128,15 +128,13 @@ def save(iface):
         return redirect(url_for('wifi.index'))
     # Build hostapd config
     cfg_dir = '/etc/hostapd'
-    try:
-        os.makedirs(cfg_dir, exist_ok=True)
-    except Exception:
-        pass
+    os.makedirs(cfg_dir, exist_ok=True)
     cfg_file = os.path.join(cfg_dir, f"{iface}.conf")
-    # Render hostapd config via Jinja template
     try:
+        # Choose template based on hardware mode: 2.4GHz vs 5GHz
+        template_name = 'config/hostapd-2g.conf.j2' if hw_mode == 'g' else 'config/hostapd-5g.conf.j2'
         content = render_template(
-            'config/hostapd.conf.j2',
+            template_name,
             iface=iface,
             ssid=ssid,
             hw_mode=hw_mode,

@@ -47,11 +47,11 @@
               <div class="d-flex align-items-center">
                 <button type="submit" name="action" value="save" class="btn btn-primary me-2">Save Settings</button>
                 {% if iface.service_enabled %}
-                  <button type="submit" name="action" value="disable" class="btn btn-warning me-2">Disable Service</button>
+                  <button type="submit" name="action" value="disable" class="btn btn-warning me-2" formnovalidate>Disable Service</button>
                 {% else %}
-                  <button type="submit" name="action" value="enable" class="btn btn-success me-2">Enable Service</button>
+                  <button type="submit" name="action" value="enable" class="btn btn-success me-2" formnovalidate>Enable Service</button>
                 {% endif %}
-                <button type="submit" name="action" value="restart" class="btn btn-secondary">Restart Service</button>
+                <button type="submit" name="action" value="restart" class="btn btn-secondary" formnovalidate>Restart Service</button>
                 <div class="ms-3">
                   <span class="fw-bold {{ 'text-success' if iface.service_enabled else 'text-danger' }}">{{ 'Enabled' if iface.service_enabled else 'Disabled' }}</span>
                   &nbsp;/&nbsp;

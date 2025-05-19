@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Border0 Organization Config</h1>
+<h1>Border0 Organization Configuration</h1>
+<p class="text-muted">Use this page to configure your Border0 organization and client token. First, set your organization name, then login to Border0 to retrieve your client token, and finally upload the token to enable device connectivity.</p>
 
 <!-- Organization setup and device service status -->
 <div class="row mb-4">
@@ -10,10 +11,13 @@
         <form method="post" class="row g-3">
           <div class="col-md-8">
             <label for="org" class="form-label">Organization Name</label>
-            <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30">
+            <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30"
+                   placeholder="e.g., my-org-name"
+                   title="Enter your Border0 organization name">            
           </div>
           <div class="col-md-4 align-self-end">
-            <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
+            <button type="submit" name="action" value="save_org" class="btn btn-primary"
+                    title="Save organization name for login and token retrieval">Save Organization</button>
           </div>
         </form>
         {% else %}
@@ -22,21 +26,23 @@
             <label class="form-label mb-0">Organization:</label>
             <div><strong>{{ org }}</strong></div>
           </div>
-          <form method="post">
-            <button type="submit" name="action" value="reset_org" class="btn btn-primary">Reset Org Settings</button>
-          </form>
+          <div>
+            <form method="post" class="d-inline">
+              <button type="submit" name="action" value="reset_org" class="btn btn-secondary me-2"
+                      title="Reset saved organization, client token, and device state; stop VPN service">Reset Org Settings</button>
+            </form>
+            {% if not token_exists %}
+            <form method="post" class="d-inline">
+              <button type="submit" name="action" value="login" class="btn btn-primary"
+                      title="Login to Border0 to obtain a new client token for your organization">Login to Border0</button>
+            </form>
+            {% endif %}
+          </div>
         </div>
         {% endif %}
       </div>
     </div>
   </div>
-  {% if org and not token_exists %}
-  <div class="mb-4">
-    <form method="post" class="d-flex gap-2">
-      <button type="submit" name="action" value="login" class="btn btn-primary">Login to border0</button>
-    </form>
-  </div>
-  {% endif %}
   {% if login_url %}
   <div class="alert alert-info">
     <script>window.open('{{ login_url }}', '_blank');</script>
@@ -54,9 +60,12 @@
       <form method="post">
         <div class="mb-3">
           <label for="token" class="form-label">Client Token</label>
-          <textarea class="form-control" id="token" name="token" rows="5" required></textarea>
+          <textarea class="form-control" id="token" name="token" rows="5" required
+                    placeholder="Paste the client token provided by Border0"
+                    title="Client token obtained after authentication"></textarea>
         </div>
-        <button type="submit" name="action" value="upload_token" class="btn btn-primary">Save Token</button>
+        <button type="submit" name="action" value="upload_token" class="btn btn-primary"
+                title="Save the client token to enable device connectivity">Save Token</button>
       </form>
     </div>
   </div>
@@ -66,6 +75,9 @@
   <div class="card h-100">
     <div class="card-header"><strong>Border0 Device Service Status</strong></div>
     <div class="card-body">
+      <div class="mb-3">
+        <span class="fw-bold {{ 'text-success' if service_enabled else 'text-danger' }}">{{ 'Enabled' if service_enabled else 'Disabled' }}</span>&nbsp;/&nbsp;<span class="fw-bold {{ 'text-success' if service_active else 'text-danger' }}">{{ 'Active' if service_active else 'Inactive' }}</span>
+      </div>
       <pre class="small text-muted" style="white-space: pre-wrap; word-wrap: break-word;">{{ device_status }}</pre>
       <form method="post" class="mt-3">
         <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>

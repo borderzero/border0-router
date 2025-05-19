@@ -37,15 +37,40 @@ def index():
 
     if request.method == 'POST':
         action = request.form.get('action')
-        # Reset organization settings
+        # Reset organization and client token settings, and stop VPN service
         if action == 'reset_org':
+            errors = []
+            # Remove saved organization file
             try:
-                # Remove cached org file if exists
                 if os.path.isfile(Config.BORDER0_ORG_PATH):
                     os.remove(Config.BORDER0_ORG_PATH)
-                flash('Organization settings reset.', 'success')
             except Exception as e:
-                flash(f'Failed to reset organization settings: {e}', 'danger')
+                errors.append(f"org file removal error: {e}")
+            # Remove saved client token
+            try:
+                token_path = Config.BORDER0_TOKEN_PATH
+                if os.path.isfile(token_path):
+                    os.remove(token_path)
+            except Exception as e:
+                errors.append(f"token removal error: {e}")
+            # Remove device state file (if exists)
+            try:
+                state_dir = os.path.dirname(Config.BORDER0_TOKEN_PATH)
+                state_file = os.path.join(state_dir, 'device.state.yaml')
+                if os.path.isfile(state_file):
+                    os.remove(state_file)
+            except Exception as e:
+                errors.append(f"device state removal error: {e}")
+            # Stop the border0-device service
+            try:
+                subprocess.run(['systemctl', 'stop', 'border0-device'], check=False)
+            except Exception as e:
+                errors.append(f"service stop error: {e}")
+            # Report results
+            if errors:
+                flash(f"Reset completed with errors: {'; '.join(errors)}", 'warning')
+            else:
+                flash('Organization settings, client token, and device state reset; VPN service stopped.', 'success')
             return redirect(url_for('vpn.index'))
         # Save organization name
         if action == 'save_org':
@@ -113,6 +138,12 @@ def index():
                         flash(f'Login URL not found in CLI output. Output: {msg}', 'danger')
                 except Exception as e:
                     flash(f'Error running login command: {e}', 'danger')
+            # restart border-device service
+            time.sleep(10)
+            try:
+                subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+            except Exception as e:
+                flash(f'Error restarting border-device service: {e}', 'danger')
             # fall through to render template with login_url if set
 
         # Upload client token
@@ -183,6 +214,14 @@ def index():
     except Exception as e:
         device_status = f'Error obtaining service status: {e}'
         service_active = False
+    try:
+        enabled_proc = subprocess.run(
+            ['systemctl', 'is-enabled', 'border0-device.service'],
+            capture_output=True, text=True, timeout=5
+        )
+        service_enabled = enabled_proc.stdout.strip() == 'enabled'
+    except Exception:
+        service_enabled = False
 
     # Determine token existence (may be used for showing upload form)
     token_exists = os.path.isfile(token_file)
@@ -224,6 +263,7 @@ def index():
         token_exists=token_exists,
         token_file=token_file,
         service_active=service_active,
+        service_enabled=service_enabled,
         exit_nodes=exit_nodes,
         current_exit_node=current_exit_node,
         exitnode_error=exitnode_error,
