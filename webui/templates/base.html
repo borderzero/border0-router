@@ -75,9 +75,9 @@
       </div>
       <hr class="my-2 mx-3">
       <div class="list-group list-group-flush mt-auto">
-        <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action">Logout</a>
-        <hr class="mx-3 my-2" style="border-color: transparent;">
         <a href="{{ url_for('auth.system') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'auth.system' %}active{% endif %}">System</a>
+        <hr class="mx-3 my-2" style="border-color: transparent;">
+        <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action">Logout</a>
       </div>
     </nav>
     <div class="flex-grow-1 d-flex flex-column">

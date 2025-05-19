@@ -1,23 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Home</h1>
-<div class="card">
+<div class="card mb-4">
   <div class="card-body">
-    <p><strong>Current border0 version:</strong> {{ current_version }}</p>
-    {% if update_available %}
-      <p class="text-warning"><strong>New version available:</strong> {{ new_version }}</p>
-      <div class="d-flex gap-2">
-        <a href="{{ url_for('home.upgrade_page') }}" class="btn btn-primary">Upgrade to {{ new_version }}</a>
-        <form method="post" action="{{ url_for('home.check_update') }}" class="m-0">
-          <button type="submit" class="btn btn-primary">Check for updates</button>
-        </form>
-      </div>
-    {% else %}
-      <p class="text-success">You are running the latest version.</p>
-      <form method="post" action="{{ url_for('home.check_update') }}" class="mt-3">
-        <button type="submit" class="btn btn-primary">Check for updates</button>
-      </form>
-    {% endif %}
+    <p class="text-muted">Welcome to the Border0 Router Admin Panel. Use the sidebar to navigate to Wi-Fi, LAN, WAN, VPN, and System settings.</p>
   </div>
 </div>
 {% endblock %}

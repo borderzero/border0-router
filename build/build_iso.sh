@@ -229,6 +229,12 @@ echo "Running webui setup script..."
 cd /opt/border0/webui
 ./setup.sh
 
+echo "Copy all files to /opt/border0/defaults for factory reset restoration"
+cp -rv /etc/network/interfaces.d/dummy0.conf /opt/border0/defaults/etc/network/interfaces.d/dummy0.conf
+cp -rv /etc/network/interfaces.d/wlan0.conf /opt/border0/defaults/etc/network/interfaces.d/wlan0.conf
+cp -rv /etc/network/interfaces.d/eth0.conf /opt/border0/defaults/etc/network/interfaces.d/eth0.conf
+cp -rv /etc/hostapd/wlan0.conf /opt/border0/defaults/etc/hostapd/wlan0.conf
+
 
 echo "done"
 EOF

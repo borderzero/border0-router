@@ -1,9 +1,16 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
+import os
+import re
+import json
+import glob
+import shutil
 import subprocess
 import datetime
+import urllib.request
 from ...extensions import login_manager
+from flask import Response
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -40,21 +47,132 @@ def logout():
 @auth_bp.route('/system', methods=['GET', 'POST'])
 @login_required
 def system():
-    """Show system page on GET; reboot the system on POST."""
+    """Handle system operations: show system page on GET; perform reboot, update checks, upgrade, or factory reset on POST."""
     if request.method == 'POST':
-        try:
-            subprocess.Popen(['systemctl', 'reboot'])
-            flash('Rebooting system...', 'info')
-        except Exception as e:
-            flash(f'Failed to reboot system: {e}', 'danger')
-        return redirect(url_for('auth.system'))
-    # GET: display uptime
-    uptime_str = ''
+        action = request.form.get('action')
+        # Reboot
+        if action == 'reboot':
+            try:
+                subprocess.Popen(['systemctl', 'reboot'])
+                flash('Rebooting system...', 'info')
+            except Exception as e:
+                flash(f'Failed to reboot system: {e}', 'danger')
+            return redirect(url_for('auth.system'))
+        # Check for updates
+        if action == 'check_update':
+            cli = current_app.config.get('BORDER0_CLI_PATH', 'border0')
+            cache_dir = '/etc/border0'
+            cache_file = os.path.join(cache_dir, 'version_cache.json')
+            os.makedirs(cache_dir, exist_ok=True)
+            # Get current version
+            try:
+                out = subprocess.check_output([cli, '--version'], stderr=subprocess.STDOUT, text=True, timeout=30)
+                m = re.search(r'version:\s*(v\S+)', out)
+                current_version = m.group(1) if m else 'unknown'
+            except Exception as e:
+                flash(f'Failed to get current Border0 version: {e}', 'warning')
+                return redirect(url_for('auth.system'))
+            # Get latest version
+            latest = None
+            try:
+                resp = urllib.request.urlopen('https://download.border0.com/latest_version.txt', timeout=10)
+                latest = resp.read().decode().strip()
+            except Exception as e:
+                flash(f'Failed to fetch latest version info: {e}', 'warning')
+            update_available = bool(latest and latest != current_version)
+            cache = {
+                'current_version': current_version,
+                'update_available': update_available,
+                'new_version': latest
+            }
+            try:
+                tmp = cache_file + '.tmp'
+                with open(tmp, 'w') as f:
+                    json.dump(cache, f)
+                os.replace(tmp, cache_file)
+            except Exception as e:
+                flash(f'Failed to write version cache: {e}', 'warning')
+            if update_available:
+                flash(f'New version available: {latest}', 'success')
+            else:
+                flash('No new version available.', 'info')
+            return redirect(url_for('auth.system'))
+        # Factory reset
+        if action == 'factory_reset':
+            errors = []
+            # Paths to clean
+            paths = [
+                current_app.config.get('WAN_IFACE_PATH'),
+                current_app.config.get('LAN_IFACE_PATH'),
+                Config.BORDER0_TOKEN_PATH,
+                Config.BORDER0_ORG_PATH,
+                '/etc/border0/version_cache.json'
+            ]
+            # Remove files
+            for p in paths:
+                try:
+                    if p and os.path.isfile(p):
+                        os.remove(p)
+                except Exception as e:
+                    errors.append(str(e))
+            # Clean interface configs and hostapd
+            for pattern in ['/etc/network/interfaces.d/*.conf', '/etc/hostapd/*.conf']:
+                for file in glob.glob(pattern):
+                    try:
+                        os.remove(file)
+                    except Exception as e:
+                        errors.append(str(e))
+            if errors:
+                flash(f"Factory reset completed with errors: {'; '.join(errors)}", 'warning')
+            else:
+                flash('Factory reset completed. Restoring default settings. Rebooting...', 'info')
+            # copy template files from /opt/border0/defaults to /etc
+            # /opt/border0/defaults/etc/network/interfaces.d/dummy0.conf
+            # /opt/border0/defaults/etc/network/interfaces.d/wlan0.conf
+            # /opt/border0/defaults/etc/network/interfaces.d/eth0.conf
+            # /opt/border0/defaults/etc/hostapd/wlan0.conf
+            for file in glob.glob('/opt/border0/defaults/etc/network/interfaces.d/*.conf'):
+                shutil.copy(file, f'/etc/network/interfaces.d/{os.path.basename(file)}')
+            for file in glob.glob('/opt/border0/defaults/etc/hostapd/*.conf'):
+                shutil.copy(file, f'/etc/hostapd/{os.path.basename(file)}')
+
+            # execute "sync"
+            subprocess.Popen(['sync'])
+
+            # Reboot after factory reset
+            try:
+                subprocess.Popen(['systemctl', 'reboot'])
+            except Exception as e:
+                flash(f'Failed to reboot system: {e}', 'danger')
+            return redirect(url_for('auth.system'))
+        # Upgrade page
+        if action == 'upgrade':
+            return redirect(url_for('auth.upgrade'))
+    # GET: display system info and version status
+    # Uptime
     try:
         with open('/proc/uptime', 'r') as f:
             total_seconds = int(float(f.read().split()[0]))
-        uptime_td = datetime.timedelta(seconds=total_seconds)
-        uptime_str = str(uptime_td)
+        uptime_str = str(datetime.timedelta(seconds=total_seconds))
     except Exception:
         uptime_str = 'Unavailable'
-    return render_template('auth/system.html', uptime=uptime_str)
+    # Load version cache
+    cache_file = os.path.join('/etc/border0', 'version_cache.json')
+    current_version = 'unknown'
+    update_available = False
+    new_version = None
+    try:
+        with open(cache_file) as f:
+            data = json.load(f)
+            current_version = data.get('current_version', current_version)
+            update_available = data.get('update_available', False)
+            new_version = data.get('new_version')
+    except Exception:
+        pass
+    return render_template(
+        'auth/system.html',
+        uptime=uptime_str,
+        current_version=current_version,
+        update_available=update_available,
+        new_version=new_version
+    )
