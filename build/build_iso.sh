@@ -9,9 +9,17 @@
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
 
 # ========= CONFIGURATION =========
-IMG_XZ="../iso/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
-IMG="../iso/2024-11-19-raspios-bookworm-arm64-lite.img"
-BORDER0_IMG="../iso/2024-11-19-raspios-bookworm-arm64-lite-border0-${TIMESTAMP}.img"
+
+# Dynamically detect the stock Raspberry Pi OS image in the ../iso directory.
+STOCK_ISO_XZ=$(find ../iso -maxdepth 1 -type f -name '*.img.xz' ! -name '*-border0-*' | head -n1)
+if [ -z "${STOCK_ISO_XZ}" ]; then
+    echo "Error: No stock image .img.xz file found in ../iso directory."
+    exit 1
+fi
+ISO_BASE=$(basename "${STOCK_ISO_XZ}" .img.xz)
+IMG_XZ="../iso/${ISO_BASE}.img.xz"
+IMG="../iso/${ISO_BASE}.img"
+BORDER0_IMG="../iso/${ISO_BASE}-border0-${TIMESTAMP}.img"
 
 # Directories containing your additional files; adjust as needed.
 SYSTEMD_UNITS_SRC="./templates"
@@ -298,7 +306,7 @@ echo "Modified image saved as ${BORDER0_IMG}"
 
 if [ "${CREATE_XZ:-false}" = "true" ]; then
     echo "Creating highly compressed image with multi-threading..."
-    xz -9 -e -k -T0 "${BORDER0_IMG}"
+    xz -9 -k -T0 "${BORDER0_IMG}"
     echo "Compressed image saved as ${BORDER0_IMG}.xz"
 fi
 
