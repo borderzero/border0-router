@@ -1,0 +1,56 @@
+name: Build and Publish Raspberry Pi ISO
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static qemu-utils xz-utils
+
+      - name: Download stock ISO
+        working-directory: build
+        run: |
+          chmod +x download_iso.sh
+          ./download_iso.sh
+
+      - name: Build custom ISO
+        working-directory: build
+        run: |
+          chmod +x build_iso.sh
+          ./build_iso.sh
+
+      - name: Locate compressed image
+        id: find_image
+        run: |
+          img=$(ls iso/*-border0-*.img.xz | head -n1)
+          echo "path=$img" >> $GITHUB_OUTPUT
+          echo "name=$(basename \"$img\")" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: build-${{ github.run_number }}
+          release_name: "Raspberry Pi ISO Build #${{ github.run_number }}"
+          draft: false
+          prerelease: false
+
+      - name: Upload ISO asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.find_image.outputs.path }}
+          asset_name: ${{ steps.find_image.outputs.name }}
+          asset_content_type: application/octet-stream
