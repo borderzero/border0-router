@@ -35,6 +35,16 @@ def index():
 
     if request.method == 'POST':
         action = request.form.get('action')
+        # Reset organization settings
+        if action == 'reset_org':
+            try:
+                # Remove cached org file if exists
+                if os.path.isfile(Config.BORDER0_ORG_PATH):
+                    os.remove(Config.BORDER0_ORG_PATH)
+                flash('Organization settings reset.', 'success')
+            except Exception as e:
+                flash(f'Failed to reset organization settings: {e}', 'danger')
+            return redirect(url_for('vpn.index'))
         # Save organization name
         if action == 'save_org':
             org_name = request.form.get('org', '').strip()
@@ -135,24 +145,17 @@ def index():
                 flash(f'Error setting exit node: {e}', 'danger')
             return redirect(url_for('vpn.index'))
 
-    # Determine border0-device service status
+    # Determine border0-device service full status output
     try:
-        result = subprocess.run(
-            ['systemctl', 'is-active', 'border0-device.service'],
+        status_proc = subprocess.run(
+            ['systemctl', 'status', 'border0-device.service', '-n0'],
             capture_output=True, text=True, timeout=5
         )
-        device_status = result.stdout.strip()
+        device_status = status_proc.stdout
+        service_active = 'Active: active' in device_status
     except Exception as e:
-        device_status = f'error: {e}'
-    status_map = {
-        'active': 'success',
-        'inactive': 'secondary',
-        'failed': 'danger',
-        'activating': 'info',
-        'deactivating': 'warning'
-    }
-    device_status_badge = status_map.get(device_status, 'secondary')
-    service_active = (device_status == 'active')
+        device_status = f'Error obtaining service status: {e}'
+        service_active = False
 
     # Determine token existence (may be used for showing upload form)
     token_exists = os.path.isfile(token_file)
@@ -196,6 +199,5 @@ def index():
         exit_nodes=exit_nodes,
         current_exit_node=current_exit_node,
         exitnode_error=exitnode_error,
-        device_status=device_status,
-        device_status_badge=device_status_badge
+        device_status=device_status
     )

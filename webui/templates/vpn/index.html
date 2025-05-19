@@ -4,9 +4,9 @@
 
 <!-- Organization setup and device service status -->
 <div class="row mb-4">
-  <div class="col-md-8">
     <div class="card h-100">
       <div class="card-body">
+        {% if not org %}
         <form method="post" class="row g-3">
           <div class="col-md-8">
             <label for="org" class="form-label">Organization Name</label>
@@ -16,14 +16,25 @@
             <button type="submit" name="action" value="save_org" class="btn btn-primary">Save Organization</button>
           </div>
         </form>
+        {% else %}
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <label class="form-label mb-0">Organization:</label>
+            <div><strong>{{ org }}</strong></div>
+          </div>
+          <form method="post">
+            <button type="submit" name="action" value="reset_org" class="btn btn-primary">Reset Org Settings</button>
+          </form>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-md-4">
+  <div class="row mb-4">
     <div class="card h-100">
-      <div class="card-header"><strong>Border0 Device Service</strong> Status</div>
-      <div class="card-body d-flex flex-column justify-content-center align-items-center">
-        <span class="badge bg-{{ device_status_badge }} text-capitalize">{{ device_status }}</span>
+      <div class="card-header"><strong>Border0 Device Service Status</strong></div>
+      <div class="card-body">
+        <pre class="small text-muted" style="white-space: pre-wrap; word-wrap: break-word;">{{ device_status }}</pre>
         {% if org %}
         <form method="post" class="mt-3">
           <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
@@ -33,16 +44,9 @@
     </div>
   </div>
 </div>
-
-{# Show current organization if already set #}
-{% if org %}
-  <div class="mb-4">
-    <p>Current organization: <strong>{{ org }}</strong></p>
-  </div>
-{% endif %}
-
 <!-- Initiate login and service management -->
-{% if org %}
+{# Hide initial login form once organization is set #}
+{%- if not org %}
   {% if login_url %}
     <div class="alert alert-info">
       <script>window.open('{{ login_url }}', '_blank');</script>
@@ -57,7 +61,6 @@
     </form>
   </div>
 {% endif %}
-
 <!-- Token upload and VPN installation -->
 {%- if not org %}
   <div class="card mb-4">
