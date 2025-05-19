@@ -18,6 +18,7 @@ jobs:
       - name: Download stock ISO
         working-directory: build
         run: |
+          mkdir ../iso
           chmod +x download_iso.sh
           ./download_iso.sh
 
@@ -33,6 +34,24 @@ jobs:
           img=$(ls iso/*-border0-*.img.xz | head -n1)
           echo "path=$img" >> $GITHUB_OUTPUT
           echo "name=$(basename \"$img\")" >> $GITHUB_OUTPUT
+      - name: Determine branch tag
+        id: branch_tag
+        run: |
+          branch=${GITHUB_REF#refs/heads/}
+          if [ "$branch" = "main" ]; then tag=stable; else tag=$branch; fi
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+      - name: Rename ISO asset
+        id: rename_image
+        run: |
+          old_path=${{ steps.find_image.outputs.path }}
+          dir=$(dirname "$old_path")
+          base=$(basename "$old_path")
+          name=${base%.img.xz}
+          new_name="${name}-${{ steps.branch_tag.outputs.tag }}.img.xz"
+          mv "$old_path" "$dir/$new_name"
+          echo "path=$dir/$new_name" >> $GITHUB_OUTPUT
+          echo "name=$new_name" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         id: create_release
@@ -51,6 +70,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.find_image.outputs.path }}
-          asset_name: ${{ steps.find_image.outputs.name }}
+          asset_path: ${{ steps.rename_image.outputs.path }}
+          asset_name: ${{ steps.rename_image.outputs.name }}
           asset_content_type: application/octet-stream
