@@ -1,61 +1,118 @@
-# Border0 Pi
+# border0-router (Border0 Pi)
 
-Border0 Pi transforms a Raspberry Pi into a secure Wi-Fi gateway with a captive-portal setup and Border0 VPN integration.
+Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive-portal with integrated Border0 VPN. It provides:
+  - Custom Raspberry Pi OS image build with pre-installed Border0 CLI and Web UI
+  - Hostapd-based Wi-Fi Access Point and captive portal
+  - Border0 VPN onboarding: organization setup, authentication, install & start node
+  - Historical system metrics collection service
+  - Flask-based Gateway Admin Panel for network, VPN, and system management
 
-## Gateway Admin Panel (Web UI)
+## Table of Contents
+  - [Features](#features)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+  - [First Boot & Access](#first-boot--access)
+  - [Web UI Development](#web-ui-development)
+  - [Customization & Configuration](#customization--configuration)
+  - [Directory Structure](#directory-structure)
+  - [Troubleshooting](#troubleshooting)
 
-The `webui` directory contains a Flask-based admin panel for configuring networking, managing Border0 VPN, and viewing system statistics.
+## Features
+- Automated image build: injects Border0 CLI, Python Web UI, systemd services
+- Captive-portal Wi-Fi AP (`border0` SSID) with static DHCP/DNS (dnsmasq)
+- VPN configuration without shell: full onboarding via Web UI
+- Background metrics collector for CPU, memory, disk, network (24 h history)
 
-### Prerequisites
-- Python 3.8 or newer
-- Git (to clone this repository)
-- No manual download needed: `setup.sh` will fetch Bootstrap and Volt assets locally.
+## Prerequisites
+### Host Machine (build environment)
+- Git, Bash, coreutils, curl, sed, xz-utils
+- `losetup`, `mount`, `chroot`, `qemu-user-static` (for ARM64 chroot)
+- Make (optional): Makefile provides shortcuts (`make download-iso`, `make build-iso`)
+- **Raspberry Pi Imager** (Linux, macOS, Windows) for flashing SD cards
+  - Download from: https://www.raspberrypi.com/software/
+  - On Debian/Ubuntu: `sudo apt update && sudo apt install rpi-imager`
+  - On Ubuntu (snap): `sudo snap install rpi-imager`
 
-### Setup
-1. Navigate to the `webui` directory:
+### Raspberry Pi (target device)
+- Raspberry Pi 3/4/CM4 or newer
+- microSD card (≥ 16 GB), power supply
+- Ethernet or Wi-Fi client device for connecting to Admin Panel
+
+## Quick Start
+1. Clone the repo:
    ```bash
-   cd webui
+   git clone https://github.com/borderzero/border0-router.git
+   cd border0-router
    ```
-2. Run the setup script to create a Python virtual environment, install dependencies, and fetch static assets locally:
+2. Download the stock Raspberry Pi OS ARM64 Lite image:
    ```bash
-   ./setup.sh
+   make download-iso
    ```
-3. Activate the virtual environment:
+3. Build the custom Border0 image (requires sudo for loop mounts):
    ```bash
-   source venv/bin/activate
+   sudo make build-iso
    ```
+   - To generate a compressed `.img.xz`, prefix with `CREATE_XZ=true`:
+     ```bash
+     sudo CREATE_XZ=true make build-iso
+     ```
+4. Flash to microSD using **Raspberry Pi Imager**:
+   1. Launch **Imager**, click **CHOOSE OS → Use custom**, select `iso/*-border0-*.img`
+   2. Click **CHOOSE STORAGE**, select your SD card
+   3. Click **WRITE** and wait for completion
+   
+   <small>Or use `dd`:
+   ```bash
+   sudo dd if=$(ls iso/*-border0-*.img | head -1) of=/dev/sdX bs=4M conv=fsync status=progress
+   ```</small>
 
-### Running the Web UI
-With the virtual environment active, start the server:
+## First Boot & Access
+1. Insert the SD card into your Raspberry Pi and power it on.
+2. The device will provision services (hostapd, dnsmasq, Border0 CLI, Web UI) and reboot.
+3. Connect a client to the `border0` Wi-Fi SSID.
+4. In your browser, navigate to **http://10.10.10.10:5000** or follow the captive portal.
+5. Log in with default credentials:
+   - **Username**: `admin`
+   - **Password**: `password`
+6. Configure network interfaces, Border0 VPN, view metrics, reboot, upgrade, or factory reset via the Web UI.
+
+## Web UI Development
 ```bash
-./webui
+cd webui
+./setup.sh        # create venv, install Python deps
+source venv/bin/activate
+./run.sh          # launch dev server
 ```
-The app will be available at `http://0.0.0.0:5000`.
+- Access at `http://localhost:5000`
+- Python code under `webui/gateway_admin/`, static templates under `webui/static/`.
 
-After logging in, navigate to **Border0 VPN Config** in the sidebar. Follow these steps to set up VPN without shell access:
-1. Enter your **Organization Name** (the org you use with Border0) and click **Save Organization**.
-2. Click **Login to Border0**. The server will run the `border0 client login --org <org>` command in the background (it waits up to ~5 minutes). A new browser window/tab should open pointing to the Border0 authentication URL. If it doesn’t, click the provided link.
-3. Complete authentication in the new window. The CLI process on the Pi will detect the completion and write the client token to `~/.border0/client_token`.
-4. Back in the VPN Config page, refresh if needed. You should now see the **Install & Start VPN** button—click it to install the Border0 node and start the VPN tunnel.
-5. Once complete, your Pi is connected to Border0 over VPN.
-  
-## Historical Metrics Collection
+## Customization & Configuration
+- Override defaults via environment variables:
+  ```bash
+  export ADMIN_USERNAME=myadmin
+  export ADMIN_PASSWORD=mysecurepass
+  export SECRET_KEY=$(openssl rand -hex 16)
+  ```
+- To adjust build packages, edit `EXTRA_PKGS` and `REMOVE_PKGS` in `build/build_iso.sh`.
 
-A background metrics collector service can record system metrics (CPU, memory, disk, network throughput) every minute and make 24h of history available in the Web UI.
+## Directory Structure
+```
+. ├── build        # Image build scripts & systemd templates
+    ├── download_iso.sh
+    ├── build_iso.sh
+    └── templates
+  ├── iso          # Stock & custom Raspberry Pi OS images
+  ├── webui        # Flask admin panel & assets
+  ├── requirements.txt
+  └── Makefile     # Build & deploy shortcuts
+```
 
-### Setup
-1. Copy the systemd unit into `/etc/systemd/system/`:
-   ```bash
-   sudo cp build/templates/border0-metrics.service /etc/systemd/system/
-   ```
-2. Install the collector script to the Web UI directory and make it executable:
-   ```bash
-   sudo cp webui/metrics_collector.py /opt/border0/webui/
-   sudo chmod +x /opt/border0/webui/metrics_collector.py
-   ```
-3. Reload systemd, enable and start the service:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now border0-metrics.service
-   ```
-4. In the Gateway Admin Panel, go to **Statistics** to view live and historical data for the past 24 hours.
+## Troubleshooting
+- **Missing qemu-user-static**: `sudo apt install qemu-user-static`
+- **Permission denied** mounting loop devices: rerun build with `sudo`
+- **Web UI unreachable**: check `border0-webui` status:
+  ```bash
+  sudo systemctl status border0-webui
+  ```
+
+<!-- EOF -->
