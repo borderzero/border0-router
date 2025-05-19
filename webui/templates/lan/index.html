@@ -31,9 +31,18 @@
         The router's LAN IP and gateway will be the .1 address in the subnet.
       </div>
       <div class="mb-3">
-        <label for="dns" class="form-label">DNS Nameservers (space-separated)</label>
-        <input type="text" class="form-control" id="dns" name="dns"
-               value="{{ static_cfg.get('dns-nameservers','') }}">
+        <label class="form-label">DNS Nameservers</label>
+        <div class="row g-2 mb-2">
+          <div class="col-md-6">
+            <input type="text" class="form-control" id="dns1" name="dns1"
+                   placeholder="Primary DNS" value="{{ dns1 }}">
+          </div>
+          <div class="col-md-6">
+            <input type="text" class="form-control" id="dns2" name="dns2"
+                   placeholder="Secondary DNS" value="{{ dns2 }}">
+          </div>
+        </div>
+        <div class="form-text">Enter up to two DNS server IP addresses.</div>
       </div>
       <button type="submit" name="action" value="save" class="btn btn-primary">Save LAN Configuration</button>
       <button type="submit" name="action" value="restart" class="btn btn-secondary ms-2">Restart LAN Interface</button>

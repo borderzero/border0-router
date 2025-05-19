@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>WAN Configuration</h1>
+<div class="mb-4">
+  <p class="text-muted">Configure the WAN (Wide Area Network) connection to your upstream ISP or router. Choose the interface and whether to use DHCP or static settings. In static mode, specify the IP, netmask, gateway, DNS servers, and broadcast address.</p>
+</div>
 <div class="row mb-4">
   <div class="col-md-6">
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -19,6 +22,7 @@
         <option value="{{ iface }}" {% if iface == current_iface %}selected{% endif %}>{{ iface }}</option>
       {% endfor %}
     </select>
+    <div class="form-text">Choose the physical or virtual interface connected to your upstream network.</div>
   </div>
   <div class="mb-3">
     <label for="mode-select" class="form-label">Configuration Mode</label>
@@ -26,32 +30,38 @@
       <option value="dhcp" {% if mode=='dhcp' %}selected{% endif %}>DHCP (dynamic)</option>
       <option value="static" {% if mode=='static' %}selected{% endif %}>Static</option>
     </select>
+    <div class="form-text">DHCP: obtain IP settings automatically. Static: manually enter network details below.</div>
   </div>
   <div id="static-fields" {% if mode!='static' %}style="display:none"{% endif %}>
     <div class="mb-3">
       <label for="address" class="form-label">IP Address</label>
       <input type="text" class="form-control" id="address" name="address"
              value="{{ static_cfg.get('address','') }}">
+      <div class="form-text">Static IP address to assign to the WAN interface.</div>
     </div>
     <div class="mb-3">
       <label for="netmask" class="form-label">Netmask</label>
       <input type="text" class="form-control" id="netmask" name="netmask"
              value="{{ static_cfg.get('netmask','') }}">
+      <div class="form-text">Subnet mask, e.g., 255.255.255.0 for a /24 network.</div>
     </div>
     <div class="mb-3">
       <label for="gateway" class="form-label">Gateway</label>
       <input type="text" class="form-control" id="gateway" name="gateway"
              value="{{ static_cfg.get('gateway','') }}">
+      <div class="form-text">Default gateway IP for outbound traffic.</div>
     </div>
     <div class="mb-3">
       <label for="dns" class="form-label">DNS Nameservers (space-separated)</label>
       <input type="text" class="form-control" id="dns" name="dns"
              value="{{ static_cfg.get('dns-nameservers','') }}">
+      <div class="form-text">Enter one or more DNS server IPs for name resolution.</div>
     </div>
     <div class="mb-3">
       <label for="broadcast" class="form-label">Broadcast</label>
       <input type="text" class="form-control" id="broadcast" name="broadcast"
              value="{{ static_cfg.get('broadcast','') }}">
+      <div class="form-text">Broadcast address for the network.</div>
     </div>
   </div>
   <button type="submit" name="action" value="save" class="btn btn-primary">Save WAN Configuration</button>

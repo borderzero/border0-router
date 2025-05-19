@@ -12,7 +12,7 @@ DEFAULT_LAN_STATIC_CFG = {
     'address': '192.168.42.1',
     'netmask': '255.255.255.0',
     'gateway': '192.168.42.1',
-    'dns-nameservers': '208.67.220.220 8.8.8.8 1.1.1.1',
+    'dns-nameservers': '208.67.220.220 8.8.8.8',
     'broadcast': '192.168.42.255'
 }
 
@@ -64,9 +64,12 @@ def index():
         if iface not in interfaces:
             flash('Invalid interface selected for LAN', 'warning')
             return redirect(url_for('lan.index'))
-        # Read form fields: network (fixed /24) and optional DNS
+        # Read form fields: network (fixed /24) and separate DNS entries
         network_str = request.form.get('network', '').strip()
-        dns = request.form.get('dns', '').strip()
+        dns1 = request.form.get('dns1', '').strip()
+        dns2 = request.form.get('dns2', '').strip()
+        dns_list = [ip for ip in (dns1, dns2) if ip]
+        dns = ' '.join(dns_list)
         if not network_str:
             flash('Network is required for LAN', 'warning')
             return redirect(url_for('lan.index'))
@@ -83,14 +86,13 @@ def index():
         netmask = '255.255.255.0'
         gateway = address
         broadcast = str(network.broadcast_address)
-        # Validate optional DNS
-        if dns:
-            for ip in dns.split():
-                try:
-                    ipaddress.IPv4Address(ip)
-                except Exception:
-                    flash('Invalid LAN DNS address', 'warning')
-                    return redirect(url_for('lan.index'))
+        # Validate optional DNS server addresses
+        for ip in dns_list:
+            try:
+                ipaddress.IPv4Address(ip)
+            except Exception:
+                flash(f'Invalid LAN DNS address: {ip}', 'warning')
+                return redirect(url_for('lan.index'))
         # Write configuration file
         cfg_dir = '/etc/network/interfaces.d'
         os.makedirs(cfg_dir, exist_ok=True)
@@ -158,10 +160,16 @@ def index():
             stats = result.stdout or result.stderr
         except Exception:
             stats = 'Unable to retrieve interface statistics'
+    # Split existing DNS nameservers for template
+    dns_list = static_cfg.get('dns-nameservers', '').split()
+    dns1 = dns_list[0] if len(dns_list) > 0 else ''
+    dns2 = dns_list[1] if len(dns_list) > 1 else ''
     return render_template(
         'lan/index.html',
         interfaces=interfaces,
         current_iface=current_iface,
         static_cfg=static_cfg,
-        stats=stats
+        stats=stats,
+        dns1=dns1,
+        dns2=dns2
     )
