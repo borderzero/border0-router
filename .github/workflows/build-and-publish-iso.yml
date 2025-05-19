@@ -15,18 +15,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-user-static qemu-utils xz-utils
 
-      - name: Download stock ISO
-        working-directory: build
+      - name: Create iso directory
         run: |
-          mkdir ../iso
-          chmod +x download_iso.sh
-          ./download_iso.sh
+          mkdir -p iso
+
+      - name: download stock iso
+        working-directory: iso
+        run: |
+          curl https://downloads.raspberrypi.org/raspios_lite_arm64/images/raspios_lite_arm64-2024-01-17/2024-01-16-raspios-bookworm-arm64-lite.img.xz -o 2024-01-16-raspios-bookworm-arm64-lite.img.xz
+          pwd
+          ls -lha
+
 
       - name: Build custom ISO
         working-directory: build
         run: |
+          pwd
+          ls ../iso -lha
+          ls -lha
           chmod +x build_iso.sh
-          ./build_iso.sh
+          sudo ./build_iso.sh
 
       - name: Locate compressed image
         id: find_image
