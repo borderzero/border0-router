@@ -37,18 +37,18 @@ def logout():
     logout_user()
     return redirect(url_for('auth.login'))
 
-@auth_bp.route('/reboot', methods=['GET', 'POST'])
+@auth_bp.route('/system', methods=['GET', 'POST'])
 @login_required
-def reboot():
-    """Show reboot page on GET; reboot the system on POST."""
+def system():
+    """Show system page on GET; reboot the system on POST."""
     if request.method == 'POST':
         try:
             subprocess.Popen(['systemctl', 'reboot'])
             flash('Rebooting system...', 'info')
         except Exception as e:
             flash(f'Failed to reboot system: {e}', 'danger')
-        return redirect(url_for('auth.reboot'))
-    # GET: display uptime and reboot confirmation
+        return redirect(url_for('auth.system'))
+    # GET: display uptime
     uptime_str = ''
     try:
         with open('/proc/uptime', 'r') as f:
@@ -57,4 +57,4 @@ def reboot():
         uptime_str = str(uptime_td)
     except Exception:
         uptime_str = 'Unavailable'
-    return render_template('auth/reboot.html', uptime=uptime_str)
+    return render_template('auth/system.html', uptime=uptime_str)
