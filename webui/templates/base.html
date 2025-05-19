@@ -3,6 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <!-- Initialize theme early to avoid flash -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
   <title>Gateway Admin Panel</title>
   <!-- Bootstrap CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/bootstrap.min.css') }}">
@@ -31,7 +38,7 @@
   </style>
   <!-- Border0 light/dark theme CSS -->
   <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
-  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}" disabled>
+  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}">
   {% block head %}{% endblock %}
   <!-- Custom theming overrides -->
   <style>
@@ -55,7 +62,7 @@
 <body>
     <div class="d-flex" style="height: 100vh;">
     <nav id="sidebar" class="bg-light border-end" style="width: 250px; overflow-y: auto;">
-      <div class="sidebar-heading p-3 d-flex align-items-center justify-content-center">
+    <div class="sidebar-heading p-2 d-flex align-items-center justify-content-center">
         <img src="{{ url_for('static', filename='border0/logo.svg') }}" alt="Border0" height="32">
       </div>
       <div class="list-group list-group-flush">
@@ -70,15 +77,12 @@
       <div class="list-group list-group-flush mt-auto">
         <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action">Logout</a>
         <hr class="mx-3 my-2" style="border-color: transparent;">
-        <form method="post" action="{{ url_for('auth.reboot') }}" style="margin:0;">
-          <button type="submit" class="list-group-item list-group-item-action">Reboot</button>
-        </form>
+        <a href="{{ url_for('auth.reboot') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'auth.reboot' %}active{% endif %}">Reboot</a>
       </div>
     </nav>
     <div class="flex-grow-1 d-flex flex-column">
       <nav class="navbar navbar-expand navbar-light border-bottom border0">
         <div class="container-fluid">
-      <button class="btn btn-outline-secondary me-3" id="menu-toggle">☰</button>
           <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home.index') }}" style="position:absolute; left:50%; transform:translateX(-50%);">
             <img src="{{ url_for('static', filename='border0/logo.svg') }}" alt="Border0" height="24" class="me-2">
             <span>Gateway Admin Panel</span>
@@ -106,39 +110,20 @@
   <!-- Volt theme JS -->
   <script src="{{ url_for('static', filename='volt/js/volt.js') }}"></script>
   <script>
-    // Sidebar toggle
-    document.getElementById('menu-toggle').addEventListener('click', function(e) {
-      e.preventDefault();
-      document.getElementById('sidebar').classList.toggle('d-none');
-    });
-  </script>
-  <script>
-    // Theme toggle: switch between light and dark mode
     (function() {
       const toggleBtn = document.getElementById('theme-toggle');
-      const lightCss = document.getElementById('border0-light-css');
-      const darkCss = document.getElementById('border0-dark-css');
-      function setTheme(theme) {
-        if (theme === 'dark') {
-          lightCss.disabled = true;
-          darkCss.disabled = false;
-          document.documentElement.setAttribute('data-theme', 'dark');
-          toggleBtn.innerText = 'Light Mode';
-        } else {
-          lightCss.disabled = false;
-          darkCss.disabled = true;
-          document.documentElement.setAttribute('data-theme', 'light');
-          toggleBtn.innerText = 'Dark Mode';
-        }
-        localStorage.setItem('theme', theme);
+      if (!toggleBtn) return;
+      function updateButton(theme) {
+        toggleBtn.innerText = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
       }
       toggleBtn.addEventListener('click', function() {
-        const current = localStorage.getItem('theme') || 'light';
-        setTheme(current === 'light' ? 'dark' : 'light');
+        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        const nextTheme = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', nextTheme);
+        localStorage.setItem('theme', nextTheme);
+        updateButton(nextTheme);
       });
-      // Initialize theme on load
-      const saved = localStorage.getItem('theme') || 'light';
-      setTheme(saved);
+      updateButton(document.documentElement.getAttribute('data-theme') || 'light');
     })();
   </script>
   {% block scripts %}{% endblock %}
