@@ -16,7 +16,7 @@ class Config:
     # Path where the organization name will be stored if set via web UI
     BORDER0_ORG_PATH = os.environ.get(
         'BORDER0_ORG_PATH',
-        os.path.expanduser('~/.border0/org')
+        os.path.expanduser('/etc/border0/org')
     )
     # Path where historical metrics are logged (JSON lines, timestamp in ms)
     METRICS_LOG_PATH = os.environ.get(

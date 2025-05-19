@@ -30,41 +30,27 @@
       </div>
     </div>
   </div>
-  <div class="row mb-4">
-    <div class="card h-100">
-      <div class="card-header"><strong>Border0 Device Service Status</strong></div>
-      <div class="card-body">
-        <pre class="small text-muted" style="white-space: pre-wrap; word-wrap: break-word;">{{ device_status }}</pre>
-        {% if org %}
-        <form method="post" class="mt-3">
-          <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
-        </form>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-<!-- Initiate login and service management -->
-{# Hide initial login form once organization is set #}
-{%- if not org %}
-  {% if login_url %}
-    <div class="alert alert-info">
-      <script>window.open('{{ login_url }}', '_blank');</script>
-      <p>A new window has been opened for Border0 authentication.<br>
-      If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
-      <p>Once authentication is complete, reload this page to continue.</p>
-    </div>
-  {% endif %}
+  {% if org and not token_exists %}
   <div class="mb-4">
     <form method="post" class="d-flex gap-2">
       <button type="submit" name="action" value="login" class="btn btn-primary">Login to border0</button>
     </form>
   </div>
+  {% endif %}
+  {% if login_url %}
+  <div class="alert alert-info">
+    <script>window.open('{{ login_url }}', '_blank');</script>
+    <p>A new window has been opened for Border0 authentication.<br>
+    If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
+    <p>Once authentication is complete, reload this page to continue.</p>
+  </div>
 {% endif %}
+
 <!-- Token upload and VPN installation -->
-{%- if not org %}
+{% if org and not token_exists %}
   <div class="card mb-4">
     <div class="card-body">
-      <p>No Border0 client token found. Please Configure the Organization above or paste your client token below:</p>
+      <p>No Border0 client token found. Please paste your client token below:</p>
       <form method="post">
         <div class="mb-3">
           <label for="token" class="form-label">Client Token</label>
@@ -74,7 +60,21 @@
       </form>
     </div>
   </div>
-{%- endif %}
+{% endif %}
+{% if org %}
+<div class="row mb-4">
+  <div class="card h-100">
+    <div class="card-header"><strong>Border0 Device Service Status</strong></div>
+    <div class="card-body">
+      <pre class="small text-muted" style="white-space: pre-wrap; word-wrap: break-word;">{{ device_status }}</pre>
+      <form method="post" class="mt-3">
+        <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if service_active %}
   <div class="card mb-4">
     <div class="card-body">

@@ -5,6 +5,8 @@ import os
 import subprocess
 import re
 import time
+import signal
+import threading
 from ...config import Config
 
 vpn_bp = Blueprint('vpn', __name__, url_prefix='/vpn')
@@ -64,29 +66,54 @@ def index():
             if not org:
                 flash('Please set the organization name first.', 'danger')
             else:
+                # avoid duplicate login processes
                 try:
-                    # Launch Border0 CLI login to obtain the URL and stay running
+                    subprocess.run([
+                        'pkill', '-f', f"{Config.BORDER0_CLI_PATH} client login"
+                    ], check=False)
+                except Exception:
+                    pass
+                try:
+                    # Launch Border0 CLI login with proper environment so token is stored in $HOME/.border0
+                    env = os.environ.copy()
+                    env.update({
+                        'SHELL': '/bin/bash',
+                        'LOGNAME': 'root',
+                        'HOME': '/root',
+                        'USER': 'root',
+                    })
                     proc = subprocess.Popen(
                         [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
                         bufsize=1,
-                        preexec_fn=os.setsid
+                        preexec_fn=os.setsid,
+                        env=env
                     )
-                    # Parse first HTTP(S) URL from output
+                    # Capture output until the first HTTP(S) URL appears
+                    output_lines = []
                     pattern_url = re.compile(r'(https?://\S+)')
                     for line in proc.stdout:
+                        output_lines.append(line)
                         m = pattern_url.search(line)
                         if m:
                             login_url = m.group(1)
                             break
-                    if not login_url:
-                        flash('Login URL not found in CLI output.', 'danger')
-                    # Process stays alive to wait for user to complete login
+                    if login_url:
+                        # schedule process kill after timeout to allow user to complete login
+                        timer = threading.Timer(
+                            120,
+                            lambda pid=proc.pid: os.killpg(pid, signal.SIGTERM)
+                        )
+                        timer.daemon = True
+                        timer.start()
+                    else:
+                        msg = ''.join(output_lines).strip()
+                        flash(f'Login URL not found in CLI output. Output: {msg}', 'danger')
                 except Exception as e:
                     flash(f'Error running login command: {e}', 'danger')
-            # fall through to render with login_url if set
+            # fall through to render template with login_url if set
 
         # Upload client token
         elif action == 'upload_token':
@@ -195,6 +222,7 @@ def index():
         org=org,
         login_url=login_url,
         token_exists=token_exists,
+        token_file=token_file,
         service_active=service_active,
         exit_nodes=exit_nodes,
         current_exit_node=current_exit_node,
