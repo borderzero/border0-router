@@ -75,7 +75,14 @@
         <div class="table-responsive">
           <table class="table table-sm">
             <thead>
-              <tr><th>Name</th><th>Type</th><th>Status</th><th>IP Address</th><th>Mode</th></tr>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>IP Address</th>
+                <th>Mode</th>
+                <th>Selected</th>
+              </tr>
             </thead>
             <tbody>
               {% for info in interfaces_info %}
@@ -85,6 +92,14 @@
                   <td>{{ info.status }}</td>
                   <td>{{ info.ip }}</td>
                   <td>{{ info.mode }}</td>
+                  <td>
+                    {% if info.name == current_iface %}
+                      <span class="badge bg-success me-1">WAN</span>
+                    {% endif %}
+                    {% if info.name == lan_iface %}
+                      <span class="badge bg-primary">LAN</span>
+                    {% endif %}
+                  </td>
                 </tr>
               {% endfor %}
             </tbody>

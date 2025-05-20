@@ -196,5 +196,6 @@ def index():
         static_cfg=static_cfg,
         dns1=dns1,
         dns2=dns2,
-        interfaces_info=interfaces_info
+        interfaces_info=interfaces_info,
+        wan_iface=wan_iface
     )

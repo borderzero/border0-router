@@ -121,6 +121,14 @@ def index():
             except Exception:
                 pass
 
+    # Load current LAN interface selection for cross-page indicator
+    lan_iface = None
+    lan_iface_path = current_app.config.get('LAN_IFACE_PATH')
+    try:
+        with open(lan_iface_path) as f:
+            lan_iface = f.read().strip()
+    except Exception:
+        lan_iface = None
     # Build interface information for display
     iface_stats = psutil.net_if_stats()
     iface_addrs = psutil.net_if_addrs()
@@ -165,5 +173,6 @@ def index():
         current_iface=current_iface,
         mode=mode,
         static_cfg=static_cfg,
-        interfaces_info=interfaces_info
+        interfaces_info=interfaces_info,
+        lan_iface=lan_iface
     )
