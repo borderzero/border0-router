@@ -70,15 +70,26 @@
   </div>
   <div class="col-md-6">
     <div class="card h-100">
-      <div class="card-header"><strong>{{ current_iface if current_iface else '' }}</strong> Statistics</div>
+      <div class="card-header">Available Interfaces</div>
       <div class="card-body">
-        {% if stats %}
-          <pre style="white-space: pre-wrap;">{{ stats }}</pre>
-        {% elif current_iface %}
-          <p>No statistics available.</p>
-        {% else %}
-          <p>Select an interface to view statistics.</p>
-        {% endif %}
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Name</th><th>Type</th><th>Status</th><th>IP Address</th><th>Mode</th></tr>
+            </thead>
+            <tbody>
+              {% for info in interfaces_info %}
+                <tr>
+                  <td>{{ info.name }}</td>
+                  <td>{{ info.type }}</td>
+                  <td>{{ info.status }}</td>
+                  <td>{{ info.ip }}</td>
+                  <td>{{ info.mode }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

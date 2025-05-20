@@ -4,6 +4,8 @@ import ipaddress
 import subprocess
 from flask import Blueprint, render_template, request, flash, redirect, url_for, abort, current_app
 from flask_login import login_required
+import socket
+import psutil
 # Default static configuration defaults
 DEFAULT_STATIC_CFG = {
     'address': '192.168.123.1',
@@ -119,22 +121,49 @@ def index():
             except Exception:
                 pass
 
-    # Retrieve interface statistics
-    stats = ''
-    if current_iface:
-        try:
-            result = subprocess.run(
-                ['ip', '-s', 'address', 'show', 'dev', current_iface],
-                capture_output=True, text=True, timeout=2
-            )
-            stats = result.stdout or result.stderr
-        except Exception:
-            stats = 'Unable to retrieve interface statistics'
+    # Build interface information for display
+    iface_stats = psutil.net_if_stats()
+    iface_addrs = psutil.net_if_addrs()
+    interfaces_info = []
+    for iface in interfaces:
+        # Determine type: WiFi if wireless, else Ethernet
+        if os.path.isdir(f'/sys/class/net/{iface}/wireless'):
+            iface_type = 'WiFi'
+        else:
+            iface_type = 'Ethernet'
+        # Determine status: UP if interface is up, else no_carrier
+        is_up = iface_stats.get(iface).isup if iface in iface_stats else False
+        status = 'UP' if is_up else 'no_carrier'
+        # Get IPv4 address if available
+        ip_addr = 'none'
+        for addr in iface_addrs.get(iface, []):
+            if addr.family == socket.AF_INET:
+                ip_addr = addr.address
+                break
+        # Determine mode: static, dynamic, or unmanaged based on config file
+        cfg_file = os.path.join('/etc/network/interfaces.d', f'{iface}.conf')
+        mode_val = 'unmanaged'
+        if os.path.isfile(cfg_file):
+            try:
+                text = open(cfg_file).read()
+                if re.search(rf'^iface {re.escape(iface)} inet static', text, re.M):
+                    mode_val = 'static'
+                elif re.search(rf'^iface {re.escape(iface)} inet dhcp', text, re.M):
+                    mode_val = 'dynamic'
+            except Exception:
+                pass
+        interfaces_info.append({
+            'name': iface,
+            'type': iface_type,
+            'status': status,
+            'ip': ip_addr,
+            'mode': mode_val
+        })
     return render_template(
         'wan/index.html',
         interfaces=interfaces,
         current_iface=current_iface,
         mode=mode,
         static_cfg=static_cfg,
-        stats=stats
+        interfaces_info=interfaces_info
     )

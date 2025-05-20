@@ -4,6 +4,8 @@ import ipaddress
 import subprocess
 from flask import Blueprint, render_template, request, flash, redirect, url_for, abort, current_app
 from flask_login import login_required
+import socket
+import psutil
 
 lan_bp = Blueprint('lan', __name__, url_prefix='/lan')
 
@@ -149,17 +151,40 @@ def index():
         static_cfg['network'] = ''
         static_cfg['prefix'] = 24
 
-    # Retrieve interface statistics
-    stats = ''
-    if current_iface:
-        try:
-            result = subprocess.run(
-                ['ip', '-s', 'address', 'show', 'dev', current_iface],
-                capture_output=True, text=True, timeout=2
-            )
-            stats = result.stdout or result.stderr
-        except Exception:
-            stats = 'Unable to retrieve interface statistics'
+    # Build interface information for display
+    iface_stats = psutil.net_if_stats()
+    iface_addrs = psutil.net_if_addrs()
+    interfaces_info = []
+    for iface in interfaces:
+        if os.path.isdir(f'/sys/class/net/{iface}/wireless'):
+            iface_type = 'WiFi'
+        else:
+            iface_type = 'Ethernet'
+        is_up = iface_stats.get(iface).isup if iface in iface_stats else False
+        status = 'UP' if is_up else 'no_carrier'
+        ip_addr = 'none'
+        for addr in iface_addrs.get(iface, []):
+            if addr.family == socket.AF_INET:
+                ip_addr = addr.address
+                break
+        cfg_file = os.path.join('/etc/network/interfaces.d', f'{iface}.conf')
+        mode_val = 'unmanaged'
+        if os.path.isfile(cfg_file):
+            try:
+                text = open(cfg_file).read()
+                if re.search(rf'^iface {re.escape(iface)} inet static', text, re.M):
+                    mode_val = 'static'
+                elif re.search(rf'^iface {re.escape(iface)} inet dhcp', text, re.M):
+                    mode_val = 'dynamic'
+            except Exception:
+                pass
+        interfaces_info.append({
+            'name': iface,
+            'type': iface_type,
+            'status': status,
+            'ip': ip_addr,
+            'mode': mode_val
+        })
     # Split existing DNS nameservers for template
     dns_list = static_cfg.get('dns-nameservers', '').split()
     dns1 = dns_list[0] if len(dns_list) > 0 else ''
@@ -169,7 +194,7 @@ def index():
         interfaces=interfaces,
         current_iface=current_iface,
         static_cfg=static_cfg,
-        stats=stats,
         dns1=dns1,
-        dns2=dns2
+        dns2=dns2,
+        interfaces_info=interfaces_info
     )
