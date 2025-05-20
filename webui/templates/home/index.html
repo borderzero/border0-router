@@ -6,4 +6,87 @@
     <p class="text-muted">Welcome to the Border0 Router Admin Panel. Use the sidebar to navigate to Wi-Fi, LAN, WAN, VPN, and System settings.</p>
   </div>
 </div>
+<div class="row row-cols-1 row-cols-md-2 g-4">
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">Border0</div>
+      <div class="card-body">
+        <p>Organization: <strong>{{ org or 'Not set' }}</strong>
+          {% if not org %}<a href="{{ url_for('vpn.index') }}" class="link-secondary">Configure</a>{% endif %}
+        </p>
+        <p>Exit Node: <strong>{{ exit_node or 'None' }}</strong>
+          {% if exit_node_error %}<div class="alert alert-danger small">{{ exit_node_error }}</div>{% endif %}
+        </p>
+        <p>Service:
+          {% if service_enabled %}
+            <span class="badge bg-success">Enabled</span>
+          {% else %}
+            <span class="badge bg-danger">Disabled</span>
+          {% endif %}
+          |
+          {% if service_active %}
+            <span class="badge bg-success">Active</span>
+          {% else %}
+            <span class="badge bg-danger">Inactive</span>
+          {% endif %}
+          {% if not (service_enabled and service_active) %}
+            <a href="{{ url_for('vpn.index') }}" class="link-secondary ms-2">Fix</a>
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">System</div>
+      <div class="card-body">
+        <p>CPU Usage: <strong>{{ system_info.cpu_percent }}%</strong></p>
+        <p>Memory: <strong>{{ system_info.mem_used }} / {{ system_info.mem_total }} ({{ system_info.mem_percent }}%)</strong></p>
+        <p>Disk: <strong>{{ system_info.disk_used }} / {{ system_info.disk_total }} ({{ system_info.disk_percent }}%)</strong></p>
+        <p>Network I/O: <strong>Sent {{ system_info.net_sent }}, Recv {{ system_info.net_recv }}</strong></p>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">WAN</div>
+      <div class="card-body">
+        {% if wan_info %}
+          <p>Interface: <strong>{{ wan_info.name }}</strong></p>
+          <p>Status: <strong>{{ wan_info.status }}</strong></p>
+          <p>IPv4: <strong>{{ wan_info.ipv4 or 'None' }}</strong></p>
+          <p>IPv6: <strong>{{ wan_info.ipv6 or 'None' }}</strong></p>
+          {% if wan_traffic %}<p>Traffic: Sent {{ wan_traffic.sent }}, Recv {{ wan_traffic.recv }}</p>{% endif %}
+        {% else %}
+          <p class="text-warning">WAN interface not configured.</p>
+          <a href="{{ url_for('wan.index') }}" class="link-secondary">Configure WAN</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">LAN</div>
+      <div class="card-body">
+        {% if lan_info %}
+          <p>Interface: <strong>{{ lan_info.name }}</strong></p>
+          <p>Status: <strong>{{ lan_info.status }}</strong></p>
+          <p>IPv4: <strong>{{ lan_info.ipv4 or 'None' }}</strong></p>
+          {% if lan_traffic %}<p>Traffic: Sent {{ lan_traffic.sent }}, Recv {{ lan_traffic.recv }}</p>{% endif %}
+          <p>Clients:</p>
+          {% if lan_clients %}
+            <ul class="list-unstyled small">
+              {% for c in lan_clients %}<li>{{ c.ip }} ({{ c.mac }})</li>{% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-muted small">No clients found.</p>
+          {% endif %}
+        {% else %}
+          <p class="text-warning">LAN interface not configured.</p>
+          <a href="{{ url_for('lan.index') }}" class="link-secondary">Configure LAN</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

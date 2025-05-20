@@ -10,7 +10,6 @@ import subprocess
 import datetime
 import urllib.request
 from ...extensions import login_manager
-from flask import Response
 
 auth_bp = Blueprint('auth', __name__)
 
