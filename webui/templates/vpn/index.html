@@ -49,6 +49,23 @@
     <p>A new window has been opened for Border0 authentication.<br>
     If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
     <p>Once authentication is complete, reload this page to continue.</p>
+    <p>Auto-refreshing in <span id="b0-countdown">60</span> seconds...</p>
+    <script>
+      (function(){
+        var seconds = 60;
+        var countdownEl = document.getElementById('b0-countdown');
+        if (countdownEl) {
+          var interval = setInterval(function() {
+            seconds--;
+            countdownEl.textContent = seconds;
+            if (seconds <= 0) {
+              clearInterval(interval);
+              location.reload();
+            }
+          }, 1000);
+        }
+      })();
+    </script>
   </div>
 {% endif %}
 
