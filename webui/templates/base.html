@@ -67,9 +67,9 @@
       </div>
       <div class="list-group list-group-flush">
         <a href="{{ url_for('home.index') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'home.index' %}active{% endif %}">Home</a>
-        <a href="{{ url_for('wifi.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wifi.') %}active{% endif %}">Wi-Fi Config</a>
         <a href="{{ url_for('wan.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wan.') %}active{% endif %}">WAN Config</a>
         <a href="{{ url_for('lan.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('lan.') %}active{% endif %}">LAN Config</a>
+        <a href="{{ url_for('wifi.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('wifi.') %}active{% endif %}">Wi-Fi Config</a>
         <a href="{{ url_for('vpn.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('vpn.') %}active{% endif %}">Border0 Config</a>
         <a href="{{ url_for('stats.index') }}" class="list-group-item list-group-item-action {% if request.endpoint.startswith('stats.') %}active{% endif %}">Statistics</a>
       </div>
