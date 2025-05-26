@@ -31,12 +31,10 @@
               <button type="submit" name="action" value="reset_org" class="btn btn-secondary me-2"
                       title="Reset saved organization, client token, and device state; stop VPN service">Reset Org Settings</button>
             </form>
-            {% if not token_exists %}
             <form method="post" class="d-inline">
               <button type="submit" name="action" value="login" class="btn btn-primary"
                       title="Login to Border0 to obtain a new client token for your organization">Login to Border0</button>
             </form>
-            {% endif %}
           </div>
         </div>
         {% endif %}
@@ -67,6 +65,22 @@
       })();
     </script>
   </div>
+{% endif %}
+
+{% if user_info %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2>User Information</h2>
+    <div class="d-flex align-items-center">
+      <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
+      <div>
+        <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
+        <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
+        <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+      </div>
+    </div>
+  </div>
+</div>
 {% endif %}
 
 <!-- Token upload and VPN installation -->

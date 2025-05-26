@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 import json
+import base64
 from flask_login import login_required
 import os
 import subprocess
@@ -133,18 +134,22 @@ def index():
                         )
                         timer.daemon = True
                         timer.start()
+                        # schedule restart of border0-device service once token is present
+                        def monitor_and_restart(token_path):
+                            for _ in range(60):
+                                if os.path.isfile(token_path):
+                                    subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    break
+                                time.sleep(2)
+                        monitor_thread = threading.Thread(
+                            target=monitor_and_restart, args=(token_file,), daemon=True
+                        )
+                        monitor_thread.start()
                     else:
                         msg = ''.join(output_lines).strip()
                         flash(f'Login URL not found in CLI output. Output: {msg}', 'danger')
                 except Exception as e:
                     flash(f'Error running login command: {e}', 'danger')
-            # restart border-device service
-            time.sleep(10)
-            try:
-                subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
-            except Exception as e:
-                flash(f'Error restarting border-device service: {e}', 'danger')
-            # fall through to render template with login_url if set
 
         # Upload client token
         elif action == 'upload_token':
@@ -225,6 +230,19 @@ def index():
 
     # Determine token existence (may be used for showing upload form)
     token_exists = os.path.isfile(token_file)
+    # Decode client token to extract user information (name, nickname, picture, org_id, etc.)
+    user_info = None
+    if token_exists:
+        try:
+            token_str = open(token_file).read().strip()
+            parts = token_str.split('.')
+            if len(parts) >= 2:
+                payload_b64 = parts[1]
+                padding = '=' * (-len(payload_b64) % 4)
+                payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
+                user_info = json.loads(payload_bytes)
+        except Exception:
+            user_info = None
     # Fetch current exit node and list of available exit nodes
     exit_nodes = []
     current_exit_node = ''
@@ -267,5 +285,6 @@ def index():
         exit_nodes=exit_nodes,
         current_exit_node=current_exit_node,
         exitnode_error=exitnode_error,
-        device_status=device_status
+        device_status=device_status,
+        user_info=user_info,
     )

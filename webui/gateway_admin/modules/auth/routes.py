@@ -7,6 +7,10 @@ import json
 import glob
 import shutil
 import subprocess
+import threading
+import time
+import signal
+import base64
 import datetime
 import urllib.request
 from ...extensions import login_manager
@@ -19,23 +23,101 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id == Config.ADMIN_USERNAME:
-        return User(user_id)
-    return None
+    return User(user_id)
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
+
+    org = None
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    login_url = None
+
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        if username == Config.ADMIN_USERNAME and password == Config.ADMIN_PASSWORD:
-            user = User(username)
-            login_user(user)
-            return redirect(request.args.get('next') or url_for('home.index'))
-        flash('Invalid credentials', 'danger')
-    return render_template('auth/login.html')
+        org = request.form.get('org')
+        token_exists = os.path.isfile(token_file)
+        if not token_exists:
+            if not org:
+                flash('Please enter an organization name to log into.', 'danger')
+            else:
+                try:
+                    subprocess.run(['pkill', '-f', f"{Config.BORDER0_CLI_PATH} client login"], check=False)
+                except Exception:
+                    pass
+
+                try:
+                    env = os.environ.copy()
+                    env.update({
+                        'SHELL': '/bin/bash',
+                        'LOGNAME': 'root',
+                        'HOME': '/root',
+                        'USER': 'root',
+                    })
+                    proc = subprocess.Popen(
+                        [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        preexec_fn=os.setsid,
+                        env=env
+                    )
+
+                    pattern = re.compile(r'(https?://\S+)')
+                    for line in proc.stdout:
+                        m = pattern.search(line)
+                        if m:
+                            login_url = m.group(1)
+                            break
+
+                    if login_url:
+                        timer = threading.Timer(120, lambda pid=proc.pid: os.killpg(pid, signal.SIGTERM))
+                        timer.daemon = True
+                        timer.start()
+
+                        def monitor_and_restart(token_path):
+                            for _ in range(60):
+                                if os.path.isfile(token_path):
+                                    subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    break
+                                time.sleep(2)
+
+                        threading.Thread(target=monitor_and_restart, args=(token_file,), daemon=True).start()
+                    else:
+                        flash('Login URL not found; please try again.', 'danger')
+                except Exception as e:
+                    flash(f'Error running login command: {e}', 'danger')
+
+        else:
+            try:
+                token_str = open(token_file).read().strip()
+                parts = token_str.split('.')
+                if len(parts) >= 2:
+                    padding = '=' * (-len(parts[1]) % 4)
+                    payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+                    user_id = payload.get('user_email') or payload.get('sub')
+                    if user_id:
+                        user = User(user_id)
+                        login_user(user)
+                        return redirect(request.args.get('next') or url_for('home.index'))
+            except Exception as e:
+                flash(f'Failed to authenticate: {e}', 'danger')
+
+    token_exists = os.path.isfile(token_file)
+    user_info = None
+    if token_exists:
+        try:
+            token_str = open(token_file).read().strip()
+            parts = token_str.split('.')
+            if len(parts) >= 2:
+                padding = '=' * (-len(parts[1]) % 4)
+                user_info = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+        except Exception:
+            user_info = None
+
+    return render_template('auth/login.html', org=org, login_url=login_url,
+                           token_exists=token_exists, user_info=user_info)
 
 @auth_bp.route('/logout')
 @login_required
