@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center" style="margin-top: 100px;">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h4 class="card-title mb-4">Logout</h4>
+        {% if not token_exists %}
+          <p>No active token found. You are already logged out.</p>
+          <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Back to Login</a>
+        {% else %}
+          <p>You are currently logged in as <strong>{{ token_info.user_email }}</strong>.</p>
+          <p><strong>Org Subdomain:</strong> {{ token_info.org_subdomain }}</p>
+          <p><strong>Org ID:</strong> {{ token_info.org_id }}</p>
+          <p><strong>Token expires at:</strong> {{ token_info.exp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+          <p class="text-warning mt-3">Logging out here will delete the token file and require you to re-login.</p>
+          <form method="post" class="d-inline-block">
+            <button type="submit" name="action" value="force" class="btn btn-danger">Force Logout</button>
+          </form>
+          <form method="post" class="d-inline-block ms-2">
+            <button type="submit" name="action" value="cancel" class="btn btn-secondary">Cancel</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

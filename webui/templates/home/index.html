@@ -6,6 +6,25 @@
     <p class="text-muted">Welcome to the Border0 Router Admin Panel. Use the sidebar to navigate to Wi-Fi, LAN, WAN, VPN, and System settings.</p>
   </div>
 </div>
+
+{% if user_info %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2>User Information</h2>
+    <div class="d-flex align-items-center">
+      <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
+      <div>
+        <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
+        <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
+        <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
+        <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
 <div class="row row-cols-1 row-cols-md-2 g-4">
   <div class="col">
     <div class="card h-100">

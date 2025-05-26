@@ -25,7 +25,7 @@ BORDER0_IMG="../iso/${ISO_BASE}-border0-${TIMESTAMP}.img"
 SYSTEMD_UNITS_SRC="./templates"
 
 # List additional packages to install (space separated)
-EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq "
+EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq openssh-server"
 # List unwanted packages to remove (space separated)
 REMOVE_PKGS="modemmanager rsyslog"
 # ==================================
@@ -259,17 +259,29 @@ chroot "${MNT_ROOT}" /bin/bash /tmp/chroot_mod.sh
 
 echo "Enabling systemd units in the image..."
 systemctl --root="${MNT_ROOT}" unmask hostapd
+echo "disabled hostapd"
 systemctl --root="${MNT_ROOT}" disable hostapd.service
+echo "enabled hostapd@wlan0"
 systemctl --root="${MNT_ROOT}" enable hostapd@wlan0
+echo "disabled dnsmasq"
 systemctl --root="${MNT_ROOT}" disable dnsmasq
+echo "enabled border0-webui"
 systemctl --root="${MNT_ROOT}" enable border0-webui
+echo "enabled border0-device"
 systemctl --root="${MNT_ROOT}" enable border0-device
+echo "enabled border0-metrics"
 systemctl --root="${MNT_ROOT}" enable border0-metrics
+echo "disabled triggerhappy"
 systemctl --root="${MNT_ROOT}" disable triggerhappy.service
+echo "disabled avahi-daemon"
 systemctl --root="${MNT_ROOT}" disable avahi-daemon.service
+echo "disabled rpcbind"
 systemctl --root="${MNT_ROOT}" disable rpcbind.service
+echo "disabled bluetooth"
 systemctl --root="${MNT_ROOT}" disable bluetooth.service
-
+echo "disabled bluetooth-data-storage"
+systemctl --root="${MNT_ROOT}" enable ssh
+echo "enabled ssh"
 
 
 

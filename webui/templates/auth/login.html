@@ -4,7 +4,7 @@
   <div class="col-md-4">
     <div class="card">
       <div class="card-body">
-        <h4 class="card-title mb-4">Admin Login</h4>
+        <h4 class="card-title mb-4">Login to Border0 Org</h4>
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
             {% for category, message in messages %}
@@ -12,18 +12,56 @@
             {% endfor %}
           {% endif %}
         {% endwith %}
+        {% if not login_url and not token_exists %}
         <form method="post">
+          {% if locked %}
           <div class="mb-3">
-            <label for="username" class="form-label">Username</label>
-            <input type="text" class="form-control" id="username" name="username" required>
+            <label class="form-label">Organization</label>
+            <div class="form-control-plaintext"><strong>{{ org }}</strong></div>
           </div>
+          {% else %}
           <div class="mb-3">
-            <label for="password" class="form-label">Password</label>
-            <input type="password" class="form-control" id="password" name="password" required>
+            <label for="org" class="form-label">Organization</label>
+            <input type="text" id="org" name="org" class="form-control" placeholder="Enter your org subdomain" value="{{ org or '' }}" required>
           </div>
-          <button type="submit" class="btn btn-primary w-100">Login</button>
+          {% endif %}
+          <button type="submit" class="btn btn-primary w-100">Login to Border0</button>
         </form>
-        <p class="mt-3 mb-0"><small class="text-muted">Default credentials: admin/password</small></p>
+        {% endif %}
+        {% if login_url %}
+        <script>
+          (function() {
+            var interval = setInterval(function() {
+              fetch("{{ url_for('auth.login_status') }}")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                  if (data.token_exists) {
+                    clearInterval(interval);
+                    window.location.reload();
+                  }
+                })
+                .catch(function() {});
+            }, 2000);
+          })();
+        </script>
+        <p class="mt-3">Click <a href="{{ login_url }}" target="_blank">Login</a> to proceed.</p>
+        {% endif %}
+        {% if user_info %}
+        <div class="mt-4 text-center">
+          <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="64" class="rounded-circle mb-2">
+          <h5>{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></h5>
+          <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
+          <p class="mb-1"><strong>Org Name:</strong> {{ user_info.org_name }}</p>
+          <p class="mb-1"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+          <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
+          <form method="post">
+            <button type="submit" class="btn btn-success w-100 mt-3">Continue as {{ user_info.name }}</button>
+          </form>
+          <form method="post" action="{{ url_for('auth.switch_user') }}">
+            <button type="submit" class="btn btn-secondary w-100 mt-2">Switch user</button>
+          </form>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
