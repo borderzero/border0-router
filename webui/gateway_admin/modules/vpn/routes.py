@@ -134,9 +134,15 @@ def index():
                             break
                     if login_url:
                         # schedule process kill after timeout to allow user to complete login
+                        def _kill_proc(pid):
+                            try:
+                                os.killpg(pid, signal.SIGTERM)
+                            except Exception:
+                                pass
                         timer = threading.Timer(
                             120,
-                            lambda pid=proc.pid: os.killpg(pid, signal.SIGTERM)
+                            _kill_proc,
+                            args=(proc.pid,)
                         )
                         timer.daemon = True
                         timer.start()

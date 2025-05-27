@@ -90,7 +90,13 @@ def login():
                             break
 
                     if login_url:
-                        timer = threading.Timer(120, lambda pid=proc.pid: os.killpg(pid, signal.SIGTERM))
+                        # schedule CLI login process kill after timeout
+                        def _kill_proc(pid):
+                            try:
+                                os.killpg(pid, signal.SIGTERM)
+                            except Exception:
+                                pass
+                        timer = threading.Timer(120, _kill_proc, args=(proc.pid,))
                         timer.daemon = True
                         timer.start()
 
