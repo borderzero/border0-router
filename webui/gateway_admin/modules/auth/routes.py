@@ -30,12 +30,30 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
 
-    org = None
+    # Determine if organization is locked via existing org file
+    org_file = current_app.config.get('BORDER0_ORG_PATH')
+    org_saved = None
+    locked = False
+    if os.path.isfile(org_file):
+        try:
+            content = open(org_file).read().strip()
+            data = json.loads(content)
+            org_saved = data.get('org_subdomain') or None
+        except Exception:
+            org_saved = content
+        if org_saved:
+            locked = True
+    # Initial org value: use saved if locked
+    org = org_saved if locked else None
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     login_url = None
 
     if request.method == 'POST':
-        org = request.form.get('org')
+        # For locked org, always use saved subdomain; else read from form
+        if locked:
+            org = org_saved
+        else:
+            org = request.form.get('org')
         token_exists = os.path.isfile(token_file)
         if not token_exists:
             if not org:
@@ -151,8 +169,12 @@ def login():
         except Exception:
             pass
 
-    return render_template('auth/login.html', org=org, login_url=login_url,
-                           token_exists=token_exists, user_info=user_info)
+    return render_template('auth/login.html',
+                           org=org,
+                           login_url=login_url,
+                           token_exists=token_exists,
+                           user_info=user_info,
+                           locked=locked)
 
 @auth_bp.route('/login/status', methods=['GET'])
 def login_status():
@@ -171,11 +193,6 @@ def logout():
             try:
                 if os.path.isfile(token_file):
                     os.remove(token_file)
-            except Exception:
-                pass
-            try:
-                if os.path.isfile(org_file):
-                    os.remove(org_file)
             except Exception:
                 pass
             logout_user()

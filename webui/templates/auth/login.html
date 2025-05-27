@@ -14,10 +14,17 @@
         {% endwith %}
         {% if not login_url and not token_exists %}
         <form method="post">
+          {% if locked %}
+          <div class="mb-3">
+            <label class="form-label">Organization</label>
+            <div class="form-control-plaintext"><strong>{{ org }}</strong></div>
+          </div>
+          {% else %}
           <div class="mb-3">
             <label for="org" class="form-label">Organization</label>
             <input type="text" id="org" name="org" class="form-control" placeholder="Enter your org subdomain" value="{{ org or '' }}" required>
           </div>
+          {% endif %}
           <button type="submit" class="btn btn-primary w-100">Login to Border0</button>
         </form>
         {% endif %}
@@ -42,7 +49,7 @@
             }, 2000);
           })();
         </script>
-        <p class="mt-3">If the login page did not open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
+        <p class="mt-3">We are logging into <strong>{{ org }}</strong> organization. <br>If the login page did not open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
         {% endif %}
         {% if user_info %}
         <div class="mt-4 text-center">
