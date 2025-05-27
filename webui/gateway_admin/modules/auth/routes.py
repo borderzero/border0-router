@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
 import os
@@ -116,8 +116,24 @@ def login():
         except Exception:
             user_info = None
 
+    # Auto-login and redirect if token exists and user info available
+    if token_exists and user_info:
+        try:
+            user_id = user_info.get('user_email') or user_info.get('sub')
+            if user_id:
+                user = User(user_id)
+                login_user(user)
+                return redirect(request.args.get('next') or url_for('home.index'))
+        except Exception:
+            pass
+
     return render_template('auth/login.html', org=org, login_url=login_url,
                            token_exists=token_exists, user_info=user_info)
+
+@auth_bp.route('/login/status', methods=['GET'])
+def login_status():
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    return jsonify({'token_exists': os.path.isfile(token_file)})
 
 @auth_bp.route('/logout')
 @login_required

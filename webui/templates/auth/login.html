@@ -12,7 +12,7 @@
             {% endfor %}
           {% endif %}
         {% endwith %}
-        {% if not login_url %}
+        {% if not login_url and not token_exists %}
         <form method="post">
           <div class="mb-3">
             <label for="org" class="form-label">Organization</label>
@@ -22,7 +22,26 @@
         </form>
         {% endif %}
         {% if login_url %}
-        <script>window.open('{{ login_url }}', '_blank');</script>
+        <script>
+          (function() {
+            var loginUrl = '{{ login_url }}';
+            var win = window.open(loginUrl, '_blank');
+            if (!win) {
+              alert('Popup blocked. Please click the link below to open the login page.');
+            }
+            var interval = setInterval(function() {
+              fetch("{{ url_for('auth.login_status') }}")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                  if (data.token_exists) {
+                    clearInterval(interval);
+                    window.location.reload();
+                  }
+                })
+                .catch(function() {});
+            }, 2000);
+          })();
+        </script>
         <p class="mt-3">If the login page did not open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
         {% endif %}
         {% if user_info %}
