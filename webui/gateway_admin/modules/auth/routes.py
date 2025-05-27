@@ -100,6 +100,18 @@ def login():
                     if user_id:
                         user = User(user_id)
                         login_user(user)
+                        # on first successful login, store org ID and subdomain
+                        org_path = current_app.config.get('BORDER0_ORG_PATH')
+                        try:
+                            os.makedirs(os.path.dirname(org_path), exist_ok=True)
+                            if payload.get('org_id') and payload.get('org_subdomain') and not os.path.isfile(org_path):
+                                with open(org_path, 'w') as f:
+                                    json.dump({
+                                        'org_subdomain': payload.get('org_subdomain'),
+                                        'org_id': payload.get('org_id')
+                                    }, f)
+                        except Exception:
+                            pass
                         return redirect(request.args.get('next') or url_for('home.index'))
             except Exception as e:
                 flash(f'Failed to authenticate: {e}', 'danger')
@@ -123,6 +135,18 @@ def login():
             if user_id:
                 user = User(user_id)
                 login_user(user)
+                # on first successful auto-login, store org ID and subdomain
+                org_path = current_app.config.get('BORDER0_ORG_PATH')
+                try:
+                    os.makedirs(os.path.dirname(org_path), exist_ok=True)
+                    if user_info.get('org_id') and user_info.get('org_subdomain') and not os.path.isfile(org_path):
+                        with open(org_path, 'w') as f:
+                            json.dump({
+                                'org_subdomain': user_info.get('org_subdomain'),
+                                'org_id': user_info.get('org_id')
+                            }, f)
+                except Exception:
+                    pass
                 return redirect(request.args.get('next') or url_for('home.index'))
         except Exception:
             pass
@@ -135,11 +159,51 @@ def login_status():
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     return jsonify({'token_exists': os.path.isfile(token_file)})
 
-@auth_bp.route('/logout')
+@auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required
 def logout():
-    logout_user()
-    return redirect(url_for('auth.login'))
+    """Show logout confirmation and optionally delete the CLI token (force logout)."""
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    org_file = current_app.config.get('BORDER0_ORG_PATH')
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'force':
+            try:
+                if os.path.isfile(token_file):
+                    os.remove(token_file)
+            except Exception:
+                pass
+            try:
+                if os.path.isfile(org_file):
+                    os.remove(org_file)
+            except Exception:
+                pass
+            logout_user()
+            flash('Token deleted; you have been logged out.', 'info')
+            return redirect(url_for('auth.login'))
+        # cancel: return to home
+        return redirect(url_for('home.index'))
+    # GET: display logout info
+    token_exists = os.path.isfile(token_file)
+    token_info = None
+    if token_exists:
+        try:
+            token_str = open(token_file).read().strip()
+            parts = token_str.split('.')
+            if len(parts) >= 2:
+                padding = '=' * (-len(parts[1]) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+                exp = payload.get('exp')
+                expiry = datetime.datetime.fromtimestamp(exp) if exp else None
+                token_info = {
+                    'user_email': payload.get('user_email') or payload.get('sub'),
+                    'org_subdomain': payload.get('org_subdomain'),
+                    'org_id': payload.get('org_id'),
+                    'exp': expiry,
+                }
+        except Exception:
+            token_info = None
+    return render_template('auth/logout.html', token_exists=token_exists, token_info=token_info)
 
 @auth_bp.route('/system', methods=['GET', 'POST'])
 @login_required

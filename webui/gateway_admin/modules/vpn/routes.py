@@ -23,7 +23,13 @@ def index():
             return Config.BORDER0_ORG
         try:
             with open(Config.BORDER0_ORG_PATH) as f:
-                return f.read().strip()
+                content = f.read().strip()
+                # support JSON with org_subdomain and org_id
+                try:
+                    data = json.loads(content)
+                    return data.get('org_subdomain', '')
+                except ValueError:
+                    return content
         except IOError:
             return ''
 
