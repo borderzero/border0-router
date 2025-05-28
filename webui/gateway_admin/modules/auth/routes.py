@@ -81,35 +81,84 @@ def login():
                         preexec_fn=os.setsid,
                         env=env
                     )
+                    # collect initial CLI output lines
+                    log_lines = []
 
                     pattern = re.compile(r'(https?://\S+)')
                     for line in proc.stdout:
+                        log_lines.append(line)
                         m = pattern.search(line)
                         if m:
                             login_url = m.group(1)
                             break
 
+                    # if process exited on its own, reap to avoid zombies
+                    if proc.poll() is not None:
+                        try:
+                            proc.wait()
+                        except Exception:
+                            pass
+
                     if login_url:
-                        # schedule CLI login process kill after timeout
-                        def _kill_proc(pid):
+                        current_app.logger.info(
+                            "Border0 CLI login URL found; initial output:\n%s",
+                            ''.join(log_lines)
+                        )
+                        # schedule CLI login process kill and cleanup after timeout
+                        def _cleanup_proc(p):
                             try:
-                                os.killpg(pid, signal.SIGTERM)
+                                os.killpg(p.pid, signal.SIGTERM)
                             except Exception:
                                 pass
-                        timer = threading.Timer(120, _kill_proc, args=(proc.pid,))
+                            try:
+                                p.wait(timeout=5)
+                            except Exception:
+                                pass
+                        timer = threading.Timer(120, _cleanup_proc, args=(proc,))
                         timer.daemon = True
                         timer.start()
 
-                        def monitor_and_restart(token_path):
+                        def monitor_and_restart(token_path, p):
                             for _ in range(60):
                                 if os.path.isfile(token_path):
-                                    subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    try:
+                                        os.killpg(p.pid, signal.SIGTERM)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        p.wait(timeout=5)
+                                    except Exception:
+                                        pass
+                                    subprocess.run(
+                                        ['systemctl', 'restart', 'border0-device'],
+                                        check=False
+                                    )
                                     break
                                 time.sleep(2)
-
-                        threading.Thread(target=monitor_and_restart, args=(token_file,), daemon=True).start()
+                        threading.Thread(
+                            target=monitor_and_restart,
+                            args=(token_file, proc),
+                            daemon=True
+                        ).start()
                     else:
-                        flash('Login URL not found; please try again.', 'danger')
+                        # no URL found; kill CLI and reap, then log output
+                        try:
+                            os.killpg(proc.pid, signal.SIGTERM)
+                        except Exception:
+                            pass
+                        try:
+                            proc.wait(timeout=5)
+                        except Exception:
+                            pass
+                        current_app.logger.error(
+                            "Border0 CLI login failed; output:\n%s",
+                            ''.join(log_lines)
+                        )
+                        flash(
+                            'Login URL not found; please try again. '
+                            'See server logs for details.',
+                            'danger'
+                        )
                 except Exception as e:
                     flash(f'Error running login command: {e}', 'danger')
 
@@ -152,28 +201,6 @@ def login():
         except Exception:
             user_info = None
 
-    # Auto-login and redirect if token exists and user info available
-    if token_exists and user_info:
-        try:
-            user_id = user_info.get('user_email') or user_info.get('sub')
-            if user_id:
-                user = User(user_id)
-                login_user(user)
-                # on first successful auto-login, store org ID and subdomain
-                org_path = current_app.config.get('BORDER0_ORG_PATH')
-                try:
-                    os.makedirs(os.path.dirname(org_path), exist_ok=True)
-                    if user_info.get('org_id') and user_info.get('org_subdomain') and not os.path.isfile(org_path):
-                        with open(org_path, 'w') as f:
-                            json.dump({
-                                'org_subdomain': user_info.get('org_subdomain'),
-                                'org_id': user_info.get('org_id')
-                            }, f)
-                except Exception:
-                    pass
-                return redirect(request.args.get('next') or url_for('home.index'))
-        except Exception:
-            pass
 
     return render_template('auth/login.html',
                            org=org,
@@ -186,6 +213,16 @@ def login():
 def login_status():
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     return jsonify({'token_exists': os.path.isfile(token_file)})
+@auth_bp.route('/switch_user', methods=['POST'])
+def switch_user():
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    try:
+        if os.path.isfile(token_file):
+            os.remove(token_file)
+    except Exception:
+        pass
+    flash('Token removed; please log in as a different user.', 'info')
+    return redirect(url_for('auth.login'))
 
 @auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required

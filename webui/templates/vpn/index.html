@@ -83,24 +83,7 @@
 </div>
 {% endif %}
 
-<!-- Token upload and VPN installation -->
-{% if org and not token_exists %}
-  <div class="card mb-4">
-    <div class="card-body">
-      <p>No Border0 client token found. Please paste your client token below:</p>
-      <form method="post">
-        <div class="mb-3">
-          <label for="token" class="form-label">Client Token</label>
-          <textarea class="form-control" id="token" name="token" rows="5" required
-                    placeholder="Paste the client token provided by Border0"
-                    title="Client token obtained after authentication"></textarea>
-        </div>
-        <button type="submit" name="action" value="upload_token" class="btn btn-primary"
-                title="Save the client token to enable device connectivity">Save Token</button>
-      </form>
-    </div>
-  </div>
-{% endif %}
+
 {% if org %}
 <div class="row mb-4">
   <div class="card h-100">

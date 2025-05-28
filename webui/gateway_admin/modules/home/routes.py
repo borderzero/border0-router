@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import re
 import subprocess
 import urllib.request
@@ -152,6 +153,19 @@ def index():
         except Exception:
             pass
 
+    # retrieve user info from stored JWT token for display
+    user_info = None
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    if token_file and os.path.isfile(token_file):
+        try:
+            token_str = open(token_file).read().strip()
+            parts = token_str.split('.')
+            if len(parts) >= 2:
+                padding = '=' * (-len(parts[1]) % 4)
+                user_info = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+        except Exception:
+            user_info = None
+
     return render_template(
         'home/index.html',
         current_version=current_version,
@@ -168,7 +182,8 @@ def index():
         wan_traffic=wan_traffic,
         lan_info=lan_info,
         lan_traffic=lan_traffic,
-        lan_clients=lan_clients
+        lan_clients=lan_clients,
+        user_info=user_info
     )
 def check_update():
     cli = current_app.config.get('BORDER0_CLI_PATH', 'border0')
