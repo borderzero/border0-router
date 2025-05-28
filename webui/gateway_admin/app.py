@@ -7,7 +7,6 @@ from jinja2 import ChoiceLoader, FileSystemLoader
 # Import blueprints
 from .modules.auth.routes import auth_bp
 from .modules.home.routes import home_bp
-from .modules.wifi.routes import wifi_bp
 from .modules.wan.routes import wan_bp
 from .modules.lan.routes import lan_bp
 from .modules.vpn.routes import vpn_bp
@@ -42,7 +41,8 @@ def create_app():
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
-    app.register_blueprint(wifi_bp)
+    # Wi-Fi config moved under LAN; disable standalone Wi-Fi blueprint
+    # app.register_blueprint(wifi_bp)
     app.register_blueprint(wan_bp)
     app.register_blueprint(lan_bp)
     app.register_blueprint(vpn_bp)

@@ -2,7 +2,7 @@ import os
 import re
 import ipaddress
 import subprocess
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, abort
 from flask_login import login_required
 import socket
 import psutil
@@ -189,6 +189,59 @@ def index():
     dns_list = static_cfg.get('dns-nameservers', '').split()
     dns1 = dns_list[0] if len(dns_list) > 0 else ''
     dns2 = dns_list[1] if len(dns_list) > 1 else ''
+    # Wi-Fi configuration data
+    net_dir = '/sys/class/net'
+    wifi_interfaces = []
+    hostapd_dir = '/etc/hostapd'
+    for iface in sorted(os.listdir(net_dir)):
+        if os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
+            cfg_file = os.path.join(hostapd_dir, f"{iface}.conf")
+            ssid = hw_mode = wpa_passphrase = ''
+            if os.path.isfile(cfg_file):
+                try:
+                    with open(cfg_file) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith('#') or '=' not in line:
+                                continue
+                            k, v = line.split('=', 1)
+                            if k == 'ssid':
+                                ssid = v
+                            elif k == 'hw_mode':
+                                hw_mode = v
+                            elif k == 'wpa_passphrase':
+                                wpa_passphrase = v
+                except Exception:
+                    pass
+            try:
+                result = subprocess.run(['iwconfig', iface], capture_output=True, text=True, timeout=2)
+                stats = result.stdout or result.stderr
+            except Exception:
+                stats = 'Unable to retrieve interface statistics'
+            try:
+                en = subprocess.run(['systemctl', 'is-enabled', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
+                service_enabled = en.stdout.strip() == 'enabled'
+            except Exception:
+                service_enabled = False
+            try:
+                act = subprocess.run(['systemctl', 'is-active', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
+                service_active = act.stdout.strip() == 'active'
+            except Exception:
+                service_active = False
+            wifi_interfaces.append({
+                'name': iface,
+                'ssid': ssid,
+                'hw_mode': hw_mode,
+                'wpa_passphrase': wpa_passphrase,
+                'stats': stats,
+                'service_enabled': service_enabled,
+                'service_active': service_active
+            })
+    HW_MODES = ['g', 'a']
+    hw_mode_labels = {
+        'g': '2.4 GHz (802.11g: 6/12/24/54 Mbps)',
+        'a': '5 GHz (802.11a/n/ac: up to 866 Mbps)'
+    }
     return render_template(
         'lan/index.html',
         interfaces=interfaces,
@@ -197,5 +250,63 @@ def index():
         dns1=dns1,
         dns2=dns2,
         interfaces_info=interfaces_info,
-        wan_iface=wan_iface
+        wan_iface=wan_iface,
+        wifi_interfaces=wifi_interfaces,
+        hw_modes=HW_MODES,
+        hw_mode_labels=hw_mode_labels
     )
+ 
+@lan_bp.route('/wifi/<iface>', methods=['POST'])
+@login_required
+def wifi_save(iface):
+    # Validate wireless interface
+    net_dir = '/sys/class/net'
+    if not os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
+        abort(404)
+    action = request.form.get('action')
+    service = f'hostapd@{iface}'
+    if action in ['enable', 'disable', 'restart']:
+        try:
+            if action == 'enable':
+                cmd = ['systemctl', 'enable', '--now', service]
+                msg = 'enabled and started'
+            elif action == 'disable':
+                cmd = ['systemctl', 'disable', '--now', service]
+                msg = 'disabled and stopped'
+            else:
+                cmd = ['systemctl', 'restart', service]
+                msg = 'restarted'
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                flash(f'Service {service} {msg} successfully', 'success')
+            else:
+                flash(f'Failed to {action} service {service}: {result.stderr or result.stdout}', 'danger')
+        except Exception as e:
+            flash(f'Error managing service {service}: {e}', 'danger')
+        return redirect(url_for('lan.index'))
+    # Configuration save
+    ssid = request.form.get('ssid', '').strip()
+    hw_mode = request.form.get('hw_mode', '').strip()
+    wpa_passphrase = request.form.get('wpa_passphrase', '').strip()
+    if not ssid:
+        flash(f'SSID must not be empty for {iface}', 'warning')
+        return redirect(url_for('lan.index'))
+    if hw_mode not in ['g', 'a']:
+        flash(f'Invalid HW mode for {iface}', 'warning')
+        return redirect(url_for('lan.index'))
+    if len(wpa_passphrase) < 8:
+        flash(f'Passphrase must be at least 8 characters for {iface}', 'warning')
+        return redirect(url_for('lan.index'))
+    cfg_dir = '/etc/hostapd'
+    os.makedirs(cfg_dir, exist_ok=True)
+    cfg_file = os.path.join(cfg_dir, f"{iface}.conf")
+    try:
+        # Choose template
+        tmpl = 'config/hostapd-2g.conf.j2' if hw_mode == 'g' else 'config/hostapd-5g.conf.j2'
+        content = render_template(tmpl, iface=iface, ssid=ssid, hw_mode=hw_mode, wpa_passphrase=wpa_passphrase)
+        with open(cfg_file, 'w') as f:
+            f.write(content)
+        flash(f'Configuration for {iface} saved', 'success')
+    except Exception as e:
+        flash(f'Failed to save config for {iface}: {e}', 'danger')
+    return redirect(url_for('lan.index'))
