@@ -89,6 +89,108 @@
     </div>
   </div>
   </div>
+  <!-- Wi-Fi Configuration moved under LAN -->
+  <hr>
+  <h2>Wi-Fi Configuration</h2>
+  {% if wifi_interfaces %}
+  <ul class="nav nav-tabs" id="lanWifiTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#content-general" type="button" role="tab" aria-controls="content-general" aria-selected="true">General</button>
+    </li>
+    {% for iface in wifi_interfaces %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-{{ iface.name }}" data-bs-toggle="tab" data-bs-target="#content-{{ iface.name }}" type="button" role="tab" aria-controls="content-{{ iface.name }}" aria-selected="false">{{ iface.name }}</button>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="tab-content mt-3" id="lanWifiTabsContent">
+    <div class="tab-pane fade show active" id="content-general" role="tabpanel" aria-labelledby="tab-general">
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">All Interfaces Summary</h5>
+          <table class="table table-sm">
+            <thead><tr><th>Interface</th><th>Enabled</th><th>Active</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for iface in wifi_interfaces %}
+              <tr>
+                <td>{{ iface.name }}</td>
+                <td><span class="fw-bold {{ 'text-success' if iface.service_enabled else 'text-danger' }}">{{ 'Enabled' if iface.service_enabled else 'Disabled' }}</span></td>
+                <td><span class="fw-bold {{ 'text-success' if iface.service_active else 'text-danger' }}">{{ 'Active' if iface.service_active else 'Inactive' }}</span></td>
+                <td>
+                  <form method="post" action="{{ url_for('lan.wifi_save', iface=iface.name) }}" class="d-inline">
+                    {% if iface.service_enabled %}
+                      <button type="submit" name="action" value="disable" class="btn btn-warning btn-sm" formnovalidate>Disable</button>
+                    {% else %}
+                      <button type="submit" name="action" value="enable" class="btn btn-success btn-sm" formnovalidate>Enable</button>
+                    {% endif %}
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% for iface in wifi_interfaces %}
+    <div class="tab-pane fade" id="content-{{ iface.name }}" role="tabpanel" aria-labelledby="tab-{{ iface.name }}">
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card mb-4">
+            <div class="card-header">Statistics</div>
+            <div class="card-body">
+              <pre class="small" style="white-space: pre-wrap; word-wrap: break-word;">{{ iface.stats }}</pre>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card mb-4">
+            <div class="card-header">Configuration</div>
+            <div class="card-body">
+              <form method="post" action="{{ url_for('lan.wifi_save', iface=iface.name) }}">
+                <div class="mb-3">
+                  <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
+                  <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid" value="{{ iface.ssid }}" required maxlength="32">
+                </div>
+                <div class="mb-3">
+                  <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
+                  <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
+                    {% for mode in hw_modes %}
+                      <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ hw_mode_labels[mode] }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
+                  <div class="input-group">
+                    <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase" value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
+                    <button class="btn btn-outline-secondary" type="button" id="toggle-pass-{{ iface.name }}">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center">
+                  <button type="submit" name="action" value="save" class="btn btn-primary me-2">Save Settings</button>
+                  {% if iface.service_enabled %}
+                    <button type="submit" name="action" value="disable" class="btn btn-warning me-2" formnovalidate>Disable Service</button>
+                  {% else %}
+                    <button type="submit" name="action" value="enable" class="btn btn-success me-2" formnovalidate>Enable Service</button>
+                  {% endif %}
+                  <button type="submit" name="action" value="restart" class="btn btn-secondary" formnovalidate>Restart Service</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>No Wi-Fi interfaces found.</p>
+  {% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -124,5 +226,20 @@
       return;
     }
   });
-</script>
+  </script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      {% for iface in wifi_interfaces %}
+      (function() {
+        var toggleBtn = document.getElementById('toggle-pass-{{ iface.name }}');
+        var passwordInput = document.getElementById('passphrase-{{ iface.name }}');
+        if (toggleBtn && passwordInput) {
+          toggleBtn.addEventListener('click', function() {
+            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+          });
+        }
+      })();
+      {% endfor %}
+    });
+  </script>
 {% endblock %}

@@ -244,6 +244,11 @@ cp -rv /etc/network/interfaces.d/eth0.conf /opt/border0/defaults/etc/network/int
 cp -rv /etc/hostapd/wlan0.conf /opt/border0/defaults/etc/hostapd/wlan0.conf
 
 
+mkdir -p /etc/border0
+echo "wlan0" > /etc/border0/lan_interface 
+echo "eth0" > /etc/border0/wan_interface 
+
+
 echo "done"
 EOF
 
