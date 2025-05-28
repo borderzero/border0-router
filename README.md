@@ -95,6 +95,13 @@ source venv/bin/activate
   ```
 - To adjust build packages, edit `EXTRA_PKGS` and `REMOVE_PKGS` in `build/build_iso.sh`.
 
+- To override the default LAN/WAN interfaces baked into the image, set the environment variables before building:
+  ```bash
+  export DEFAULT_LAN_IFACE=eth1
+  export DEFAULT_WAN_IFACE=eth0
+  sudo make build-iso
+  ```
+
 ## Directory Structure
 ```
 . ├── build        # Image build scripts & systemd templates

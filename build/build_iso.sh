@@ -28,6 +28,10 @@ SYSTEMD_UNITS_SRC="./templates"
 EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq openssh-server"
 # List unwanted packages to remove (space separated)
 REMOVE_PKGS="modemmanager rsyslog"
+
+# Default LAN/WAN interface names, override via environment variables
+DEFAULT_LAN_IFACE="${DEFAULT_LAN_IFACE:-wlan0}"
+DEFAULT_WAN_IFACE="${DEFAULT_WAN_IFACE:-eth0}"
 # ==================================
 
 # Mount point directories
@@ -82,6 +86,8 @@ mount -t sysfs /sys "${MNT_ROOT}/sys"
 mount --bind /dev "${MNT_ROOT}/dev"
 # Copy DNS resolution settings for networking in chroot.
 cp -v /etc/resolv.conf "${MNT_ROOT}/etc/resolv.conf"
+echo "nameserver 8.8.8.8" >> "${MNT_ROOT}/etc/resolv.conf"
+echo "nameserver 8.8.4.4" >> "${MNT_ROOT}/etc/resolv.conf"
 
 # Bind-mount qemu-aarch64-static into the chroot.
 echo "Copy qemu-aarch64-static into the image..."
@@ -205,6 +211,12 @@ HOME=/root
 USER=root
 """ > /etc/sysconfig/border0-gw
 
+echo "Copying border0 config files into the image..."
+mkdir -p /etc/border0
+echo "wlan0" > /etc/border0/lan_interface 
+echo "eth0" > /etc/border0/wan_interface 
+
+sync
 
 echo "Cleaning out APT caches..."
 apt-get autoremove -y
@@ -244,9 +256,6 @@ cp -rv /etc/network/interfaces.d/eth0.conf /opt/border0/defaults/etc/network/int
 cp -rv /etc/hostapd/wlan0.conf /opt/border0/defaults/etc/hostapd/wlan0.conf
 
 
-mkdir -p /etc/border0
-echo "wlan0" > /etc/border0/lan_interface 
-echo "eth0" > /etc/border0/wan_interface 
 
 
 echo "done"
@@ -255,6 +264,9 @@ EOF
 # Replace placeholders with actual package lists.
 sed -i "s/PACKAGE_LIST_PLACEHOLDER/${EXTRA_PKGS}/g" "${CHROOT_SCRIPT}"
 sed -i "s/UNWANTED_PKGS_PLACEHOLDER/${REMOVE_PKGS}/g" "${CHROOT_SCRIPT}"
+# Override default LAN/WAN interface in chroot modification script
+sed -i "s|echo \"wlan0\".*|echo \"${DEFAULT_LAN_IFACE}\" > /etc/border0/lan_interface|" "${CHROOT_SCRIPT}"
+sed -i "s|echo \"eth0\".*|echo \"${DEFAULT_WAN_IFACE}\" > /etc/border0/wan_interface|" "${CHROOT_SCRIPT}"
 
 chmod +x "${CHROOT_SCRIPT}"
 
@@ -298,6 +310,13 @@ fi
 # # and then run the modification script with the following command:
 # # /tmp/chroot_mod.sh
 
+echo "Copying border0 config files into the image..."
+mkdir -p "${MNT_ROOT}/etc/border0"
+echo "wlan0" > "${MNT_ROOT}/etc/border0/lan_interface"
+echo "eth0" > "${MNT_ROOT}/etc/border0/wan_interface"
+
+echo "lan_interface: $(cat "${MNT_ROOT}/etc/border0/lan_interface")"
+echo "wan_interface: $(cat "${MNT_ROOT}/etc/border0/wan_interface")"
 
 
 # 8. Cleanup: Unmount pseudo-filesystems, the qemu bind mount, and partitions.
