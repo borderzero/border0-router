@@ -21,7 +21,7 @@ DEFAULT_LAN_STATIC_CFG = {
 @lan_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
-    # Discover interfaces, excluding loopback and current WAN interface
+    # Discover LAN interfaces: only ethX or wlanX, excluding selected WAN
     net_dir = '/sys/class/net'
     interfaces = []
     wan_iface = None
@@ -33,7 +33,10 @@ def index():
         wan_iface = None
     if os.path.isdir(net_dir):
         for iface in sorted(os.listdir(net_dir)):
-            if iface == 'lo' or iface == wan_iface:
+            # only physical ethX or wlanX
+            if not re.match(r'^(eth|wlan)\d+$', iface):
+                continue
+            if iface == wan_iface:
                 continue
             interfaces.append(iface)
 
@@ -189,11 +192,14 @@ def index():
     dns_list = static_cfg.get('dns-nameservers', '').split()
     dns1 = dns_list[0] if len(dns_list) > 0 else ''
     dns2 = dns_list[1] if len(dns_list) > 1 else ''
-    # Wi-Fi configuration data
+    # Wi-Fi configuration data (only wlanX)
     net_dir = '/sys/class/net'
     wifi_interfaces = []
     hostapd_dir = '/etc/hostapd'
     for iface in sorted(os.listdir(net_dir)):
+        # only wlanX interfaces
+        if not re.match(r'^wlan\d+$', iface):
+            continue
         if os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
             cfg_file = os.path.join(hostapd_dir, f"{iface}.conf")
             ssid = hw_mode = wpa_passphrase = ''
