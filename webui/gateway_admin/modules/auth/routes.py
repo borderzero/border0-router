@@ -284,12 +284,12 @@ def system():
         # Factory reset
         if action == 'factory_reset':
             errors = []
-            # Paths to clean
+            # Paths to clean: WAN/LAN interface, token, org, version cache
             paths = [
                 current_app.config.get('WAN_IFACE_PATH'),
                 current_app.config.get('LAN_IFACE_PATH'),
-                Config.BORDER0_TOKEN_PATH,
-                Config.BORDER0_ORG_PATH,
+                current_app.config.get('BORDER0_TOKEN_PATH'),
+                current_app.config.get('BORDER0_ORG_PATH'),
                 '/etc/border0/version_cache.json'
             ]
             # Remove files
@@ -299,6 +299,14 @@ def system():
                         os.remove(p)
                 except Exception as e:
                     errors.append(str(e))
+            # Remove device state file
+            try:
+                token_path = current_app.config.get('BORDER0_TOKEN_PATH')
+                state_file = os.path.join(os.path.dirname(token_path or ''), 'device.state.yaml')
+                if state_file and os.path.isfile(state_file):
+                    os.remove(state_file)
+            except Exception as e:
+                errors.append(str(e))
             # Clean interface configs and hostapd
             for pattern in ['/etc/network/interfaces.d/*.conf', '/etc/hostapd/*.conf']:
                 for file in glob.glob(pattern):
@@ -310,20 +318,13 @@ def system():
                 flash(f"Factory reset completed with errors: {'; '.join(errors)}", 'warning')
             else:
                 flash('Factory reset completed. Restoring default settings. Rebooting...', 'info')
-            # copy template files from /opt/border0/defaults to /etc
-            # /opt/border0/defaults/etc/network/interfaces.d/dummy0.conf
-            # /opt/border0/defaults/etc/network/interfaces.d/wlan0.conf
-            # /opt/border0/defaults/etc/network/interfaces.d/eth0.conf
-            # /opt/border0/defaults/etc/hostapd/wlan0.conf
+            # Restore default network templates
             for file in glob.glob('/opt/border0/defaults/etc/network/interfaces.d/*.conf'):
                 shutil.copy(file, f'/etc/network/interfaces.d/{os.path.basename(file)}')
             for file in glob.glob('/opt/border0/defaults/etc/hostapd/*.conf'):
                 shutil.copy(file, f'/etc/hostapd/{os.path.basename(file)}')
-
-            # execute "sync"
+            # Sync and reboot
             subprocess.Popen(['sync'])
-
-            # Reboot after factory reset
             try:
                 subprocess.Popen(['systemctl', 'reboot'])
             except Exception as e:

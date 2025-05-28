@@ -31,11 +31,6 @@
         {% if login_url %}
         <script>
           (function() {
-            var loginUrl = '{{ login_url }}';
-            var win = window.open(loginUrl, '_blank');
-            if (!win) {
-              alert('Popup blocked. Please click the link below to open the login page.');
-            }
             var interval = setInterval(function() {
               fetch("{{ url_for('auth.login_status') }}")
                 .then(function(res) { return res.json(); })
@@ -49,7 +44,7 @@
             }, 2000);
           })();
         </script>
-        <p class="mt-3">We are logging into <strong>{{ org }}</strong> organization. <br>If the login page did not open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
+        <p class="mt-3">Click <a href="{{ login_url }}" target="_blank">Login</a> to proceed.</p>
         {% endif %}
         {% if user_info %}
         <div class="mt-4 text-center">

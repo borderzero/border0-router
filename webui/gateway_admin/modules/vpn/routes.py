@@ -48,21 +48,22 @@ def index():
         if action == 'reset_org':
             errors = []
             # Remove saved organization file
+            org_path = Config.BORDER0_ORG_PATH
             try:
-                if os.path.isfile(Config.BORDER0_ORG_PATH):
-                    os.remove(Config.BORDER0_ORG_PATH)
+                if org_path and os.path.isfile(org_path):
+                    os.remove(org_path)
             except Exception as e:
                 errors.append(f"org file removal error: {e}")
             # Remove saved client token
+            token_path = Config.BORDER0_TOKEN_PATH
             try:
-                token_path = Config.BORDER0_TOKEN_PATH
-                if os.path.isfile(token_path):
+                if token_path and os.path.isfile(token_path):
                     os.remove(token_path)
             except Exception as e:
                 errors.append(f"token removal error: {e}")
-            # Remove device state file (if exists)
+            # Remove device state file
             try:
-                state_dir = os.path.dirname(Config.BORDER0_TOKEN_PATH)
+                state_dir = os.path.dirname(token_path)
                 state_file = os.path.join(state_dir, 'device.state.yaml')
                 if os.path.isfile(state_file):
                     os.remove(state_file)
@@ -89,9 +90,66 @@ def index():
                     save_org(org_name)
                     org = org_name
                     flash('Organization saved.', 'success')
+                    # Auto-trigger Border0 CLI login for this org
+                    try:
+                        subprocess.run([
+                            'pkill', '-f', f"{Config.BORDER0_CLI_PATH} client login"
+                        ], check=False)
+                    except Exception:
+                        pass
+                    env = os.environ.copy()
+                    env.update({
+                        'SHELL': '/bin/bash',
+                        'LOGNAME': 'root',
+                        'HOME': '/root',
+                        'USER': 'root'
+                    })
+                    proc = subprocess.Popen(
+                        [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        preexec_fn=os.setsid,
+                        env=env
+                    )
+                    output_lines = []
+                    pattern_url = re.compile(r'(https?://\S+)')
+                    login_url = None
+                    for line in proc.stdout:
+                        output_lines.append(line)
+                        m = pattern_url.search(line)
+                        if m:
+                            login_url = m.group(1)
+                            break
+                    if login_url:
+                        # schedule CLI login process kill
+                        def _kill(pid):
+                            try:
+                                os.killpg(pid, signal.SIGTERM)
+                            except Exception:
+                                pass
+                        timer = threading.Timer(120, _kill, args=(proc.pid,))
+                        timer.daemon = True
+                        timer.start()
+                        # monitor token then restart device
+                        def monitor(token_path):
+                            for _ in range(60):
+                                if os.path.isfile(token_path):
+                                    subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    break
+                                time.sleep(2)
+                        threading.Thread(target=monitor, args=(token_file,), daemon=True).start()
+                    else:
+                        msg = ''.join(output_lines).strip()
+                        flash(f'Login URL not found: {msg}', 'danger')
                 except Exception as e:
-                    flash(f'Failed to save organization: {e}', 'danger')
-            return redirect(url_for('vpn.index'))
+                    flash(f'Failed to save organization or initiate login: {e}', 'danger')
+            # Render page with new login_url
+            token_exists = os.path.isfile(token_file)
+            # fall through to render at bottom
+            # (login_url is set above if successful)
+            pass
 
         # Initiate Border0 client login to obtain URL
         elif action == 'login':
