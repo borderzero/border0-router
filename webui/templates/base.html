@@ -6,7 +6,7 @@
   <!-- Initialize theme early to avoid flash -->
   <script>
     (function() {
-      const theme = localStorage.getItem('theme') || 'light';
+      const theme = localStorage.getItem('theme') || 'dark';
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
@@ -24,13 +24,13 @@
     #sidebar .list-group-item {
       font-weight: 600;
     }
-    /* Border0 branding: yellow top bars */
+    /* Border0 branding: darker yellow top bars */
     .sidebar-heading {
-      background-color: #F9B300;
+      background-color: #C78F00;
       color: #000;
     }
     .navbar.border0 {
-      background-color: #F9B300;
+      background-color: #C78F00;
     }
     .navbar.border0 .btn-outline-secondary {
       color: #000 !important;
@@ -42,6 +42,13 @@
   {% block head %}{% endblock %}
   <!-- Custom theming overrides -->
   <style>
+    /* Darken Bootstrap yellow by 20% */
+    :root {
+      --bs-warning: #cc9a06;
+      --bs-yellow:  #cc9a06;
+      --bs-warning-rgb: 204,154,6;
+      --bs-yellow-rgb: 204,154,6;
+    }
     /* Brand title color (always white for visibility) */
     .navbar.border0 .navbar-brand span {
       color: #fff !important;
@@ -53,8 +60,8 @@
     }
     /* Theme toggle button styling in dark mode */
     html[data-theme="dark"] #theme-toggle {
-      background-color: #F9B300 !important;
-      border-color: #F9B300 !important;
+      background-color: #C78F00 !important;
+      border-color: #C78F00 !important;
       color: #fff !important;
     }
   </style>
@@ -116,13 +123,13 @@
         toggleBtn.innerText = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
       }
       toggleBtn.addEventListener('click', function() {
-        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
         const nextTheme = current === 'light' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', nextTheme);
         localStorage.setItem('theme', nextTheme);
         updateButton(nextTheme);
       });
-      updateButton(document.documentElement.getAttribute('data-theme') || 'light');
+      updateButton(document.documentElement.getAttribute('data-theme') || 'dark');
     })();
   </script>
   {% block scripts %}{% endblock %}
