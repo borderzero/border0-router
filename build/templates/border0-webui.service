@@ -13,7 +13,7 @@ WorkingDirectory=/opt/border0/webui
 Restart=always
 
 RestartSec=10
-EnvironmentFile=-/etc/sysconfig/border0-gw
+EnvironmentFile=-/etc/sysconfig/border0-webui
 
 [Install]
 WantedBy=multi-user.target
