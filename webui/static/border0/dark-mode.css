@@ -61,8 +61,27 @@ html[data-theme="dark"] .table > tbody > tr > td {
 html[data-theme="dark"] .table-striped > tbody > tr:nth-of-type(odd) > td {
   background-color: #30343a !important;
 }
+/* Ensure form-control-plaintext text is readable (override default black) */
+html[data-theme="dark"] .form-control-plaintext {
+  color: #d1d8e0 !important;
+}
 /* Ensure exit nodes table text is fully visible in dark mode */
 html[data-theme="dark"] .exit-nodes-table th,
 html[data-theme="dark"] .exit-nodes-table td {
+  color: #ffffff !important;
+}
+/* Border0 dark mode overrides for readability: prevent any pure-black or near-black text */
+html[data-theme="dark"] .navbar-light .navbar-brand,
+html[data-theme="dark"] .navbar-light .navbar-nav .nav-link,
+html[data-theme="dark"] .navbar-light .navbar-text,
+html[data-theme="dark"] .text-dark,
+html[data-theme="dark"] .text-black {
+  color: #d1d8e0 !important;
+}
+html[data-theme="dark"] .navbar-light .navbar-nav .nav-link:hover,
+html[data-theme="dark"] .navbar-light .navbar-nav .nav-link:focus,
+html[data-theme="dark"] .navbar-light .navbar-nav .nav-link.active,
+html[data-theme="dark"] .text-dark:hover,
+html[data-theme="dark"] .text-black:hover {
   color: #ffffff !important;
 }

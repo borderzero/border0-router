@@ -3,14 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <!-- Initialize theme early to avoid flash -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
   <title>Gateway Admin Panel - Login</title>
   <!-- Bootstrap CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/bootstrap.min.css') }}">
   <!-- Volt theme CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='volt/css/volt.css') }}">
+  <!-- Border0 light/dark theme CSS -->
+  <link id="border0-light-css" rel="stylesheet" href="{{ url_for('static', filename='border0/border0-light.css') }}">
+  <link id="border0-dark-css" rel="stylesheet" href="{{ url_for('static', filename='border0/dark-mode.css') }}">
+  <style>
+    html[data-theme="dark"] #theme-toggle {
+      background-color: #C78F00 !important;
+      border-color: #C78F00 !important;
+      color: #fff !important;
+    }
+  </style>
   {% block head %}{% endblock %}
 </head>
 <body class="bg-light">
+  <div class="d-flex justify-content-end mt-3 me-3">
+    <button id="theme-toggle" class="btn btn-outline-secondary btn-sm">Dark Mode</button>
+  </div>
   <div class="container">
     {% block content %}{% endblock %}
   </div>
@@ -18,5 +38,22 @@
   <script src="{{ url_for('static', filename='volt/js/bootstrap.bundle.min.js') }}"></script>
   <!-- Volt theme JS -->
   <script src="{{ url_for('static', filename='volt/js/volt.js') }}"></script>
+  <script>
+    (function() {
+      const toggleBtn = document.getElementById('theme-toggle');
+      if (!toggleBtn) return;
+      function updateButton(theme) {
+        toggleBtn.innerText = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+      }
+      toggleBtn.addEventListener('click', function() {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        const nextTheme = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', nextTheme);
+        localStorage.setItem('theme', nextTheme);
+        updateButton(nextTheme);
+      });
+      updateButton(document.documentElement.getAttribute('data-theme') || 'dark');
+    })();
+  </script>
 </body>
 </html>
