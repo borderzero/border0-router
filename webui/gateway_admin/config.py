@@ -1,5 +1,7 @@
 import os
 
+import datetime
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me')
     ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
@@ -33,3 +35,7 @@ class Config:
         'LAN_IFACE_PATH',
         '/etc/border0/lan_interface'
     )
+    # Make sessions permanent so they expire after a fixed duration
+    SESSION_PERMANENT = True
+    # Limit session lifetime to 1 hour
+    PERMANENT_SESSION_LIFETIME = datetime.timedelta(hours=1)

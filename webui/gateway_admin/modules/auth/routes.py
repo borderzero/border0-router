@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
 import os
@@ -173,6 +173,8 @@ def login():
                     if user_id:
                         user = User(user_id)
                         login_user(user)
+                        # mark session as permanent to respect configured lifetime
+                        session.permanent = True
                         # on first successful login, store org ID and subdomain
                         org_path = current_app.config.get('BORDER0_ORG_PATH')
                         try:
