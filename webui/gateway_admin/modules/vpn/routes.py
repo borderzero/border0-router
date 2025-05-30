@@ -118,23 +118,37 @@ def index():
                             login_url = m.group(1)
                             break
                     if login_url:
-                        # schedule CLI login process kill
-                        def _kill(pid):
+                        # schedule CLI login process cleanup after timeout
+                        def _cleanup(proc):
                             try:
-                                os.killpg(pid, signal.SIGTERM)
+                                os.killpg(proc.pid, signal.SIGTERM)
                             except Exception:
                                 pass
-                        timer = threading.Timer(120, _kill, args=(proc.pid,))
+                            try:
+                                proc.wait(timeout=5)
+                            except Exception:
+                                pass
+                            current_app.logger.info(f'Border0 CLI login process {proc.pid} cleaned up')
+                        timer = threading.Timer(120, _cleanup, args=(proc,))
                         timer.daemon = True
                         timer.start()
                         # monitor token then restart device
-                        def monitor(token_path):
+                        def _monitor(token_path, proc):
                             for _ in range(60):
                                 if os.path.isfile(token_path):
+                                    try:
+                                        os.killpg(proc.pid, signal.SIGTERM)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        proc.wait(timeout=5)
+                                    except Exception:
+                                        pass
                                     subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    current_app.logger.info('Border0 device service restarted after token acquisition')
                                     break
                                 time.sleep(2)
-                        threading.Thread(target=monitor, args=(token_file,), daemon=True).start()
+                        threading.Thread(target=_monitor, args=(token_file, proc), daemon=True).start()
                     else:
                         msg = ''.join(output_lines).strip()
                         flash(f'Login URL not found: {msg}', 'danger')
@@ -186,28 +200,40 @@ def index():
                             login_url = m.group(1)
                             break
                     if login_url:
-                        # schedule process kill after timeout to allow user to complete login
-                        def _kill_proc(pid):
+                        # schedule CLI login process cleanup after timeout
+                        def _cleanup_login(proc):
                             try:
-                                os.killpg(pid, signal.SIGTERM)
+                                os.killpg(proc.pid, signal.SIGTERM)
                             except Exception:
                                 pass
-                        timer = threading.Timer(
-                            120,
-                            _kill_proc,
-                            args=(proc.pid,)
-                        )
+                            try:
+                                proc.wait(timeout=5)
+                            except Exception:
+                                pass
+                            current_app.logger.info(f'Border0 CLI login process {proc.pid} cleaned up (login)')
+                        timer = threading.Timer(120, _cleanup_login, args=(proc,))
                         timer.daemon = True
                         timer.start()
                         # schedule restart of border0-device service once token is present
-                        def monitor_and_restart(token_path):
+                        def _monitor_and_restart(token_path, proc):
                             for _ in range(60):
                                 if os.path.isfile(token_path):
+                                    try:
+                                        os.killpg(proc.pid, signal.SIGTERM)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        proc.wait(timeout=5)
+                                    except Exception:
+                                        pass
                                     subprocess.run(['systemctl', 'restart', 'border0-device'], check=False)
+                                    current_app.logger.info('Border0 device service restarted after login')
                                     break
                                 time.sleep(2)
                         monitor_thread = threading.Thread(
-                            target=monitor_and_restart, args=(token_file,), daemon=True
+                            target=_monitor_and_restart,
+                            args=(token_file, proc),
+                            daemon=True
                         )
                         monitor_thread.start()
                     else:
