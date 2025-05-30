@@ -221,47 +221,14 @@ def switch_user():
     logout_user()
     flash('Please log in as a different user.', 'info')
     return redirect(url_for('auth.login'))
-
+    
 @auth_bp.route('/logout', methods=['GET', 'POST'])
-@login_required
 def logout():
-    """Show logout confirmation and optionally delete the CLI token (force logout)."""
-    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
-    org_file = current_app.config.get('BORDER0_ORG_PATH')
-    if request.method == 'POST':
-        action = request.form.get('action')
-        if action == 'force':
-            try:
-                if os.path.isfile(token_file):
-                    os.remove(token_file)
-            except Exception:
-                pass
-            logout_user()
-            flash('Token deleted; you have been logged out.', 'info')
-            return redirect(url_for('auth.login'))
-        # cancel: return to home
-        return redirect(url_for('home.index'))
-    # GET: display logout info
-    token_exists = os.path.isfile(token_file)
-    token_info = None
-    if token_exists:
-        try:
-            token_str = open(token_file).read().strip()
-            parts = token_str.split('.')
-            if len(parts) >= 2:
-                padding = '=' * (-len(parts[1]) % 4)
-                payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
-                exp = payload.get('exp')
-                expiry = datetime.datetime.fromtimestamp(exp) if exp else None
-                token_info = {
-                    'user_email': payload.get('user_email') or payload.get('sub'),
-                    'org_subdomain': payload.get('org_subdomain'),
-                    'org_id': payload.get('org_id'),
-                    'exp': expiry,
-                }
-        except Exception:
-            token_info = None
-    return render_template('auth/logout.html', token_exists=token_exists, token_info=token_info)
+    # Clear UI session; keep CLI token intact
+    logout_user()
+    session['skip_token'] = True
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('auth.login'))
 
 @auth_bp.route('/system', methods=['GET', 'POST'])
 @login_required

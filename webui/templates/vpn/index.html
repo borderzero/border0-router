@@ -20,11 +20,6 @@
                     title="Save organization name for login and token retrieval">Save Organization</button>
           </div>
         </form>
-        {% else %}
-        <div>
-          <label class="form-label mb-0">Organization:</label>
-          <div><strong>{{ org }}</strong></div>
-        </div>
         {% endif %}
       </div>
     </div>
@@ -127,8 +122,14 @@
           <select class="form-select" id="exit_node" name="exit_node">
             <option value="none" {% if not current_exit_node %}selected{% endif %}>None</option>
             {% for en in exit_nodes %}
+              {% set first_ip = en.public_ips[0] if en.public_ips else None %}
+              {% if first_ip %}
+                {% set loc = first_ip.metadata.city_name ~ ', ' ~ first_ip.metadata.region_name ~ ', ' ~ first_ip.metadata.country_name %}
+              {% else %}
+                {% set loc = '' %}
+              {% endif %}
               <option value="{{ en.name }}" {% if en.name == current_exit_node %}selected{% endif %}>
-                {{ en.name }} ({{ en.peer_name }}, {{ en.dns_name }})
+                {{ en.name }}{% if loc %} ({{ loc }}){% endif %}
               </option>
             {% endfor %}
           </select>
@@ -141,27 +142,24 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th>Peer</th>
-              <th>DNS Name</th>
               <th>IPs</th>
               <th>Location</th>
-              <th>ISP</th>
             </tr>
           </thead>
           <tbody>
             {% for en in exit_nodes %}
+            {% set first = en.public_ips[0] if en.public_ips else None %}
             <tr>
               <td>{{ en.name }}</td>
-              <td>{{ en.peer_name }}</td>
-              <td>{{ en.dns_name }}</td>
               <td>
-                {% for ip in en.public_ips %}{{ ip.ip_address }}<br>{% endfor %}
+                {% for ip in en.public_ips %}{{ ip.ip_address }}{% if not loop.last %}, {% endif %}{% endfor %}
               </td>
               <td>
-                {% for ip in en.public_ips %}{{ ip.metadata.city_name }}, {{ ip.metadata.region_name }}, {{ ip.metadata.country_name }}<br>{% endfor %}
-              </td>
-              <td>
-                {% for ip in en.public_ips %}{{ ip.metadata.isp }}<br>{% endfor %}
+                {% if first %}
+                  {{ first.metadata.city_name }}, {{ first.metadata.region_name }}, {{ first.metadata.country_name }}
+                {% else %}
+                  N/A
+                {% endif %}
               </td>
             </tr>
             {% endfor %}
