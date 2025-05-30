@@ -33,9 +33,28 @@
         <p>Organization: <strong>{{ org or 'Not set' }}</strong>
           {% if not org %}<a href="{{ url_for('vpn.index') }}" class="link-secondary">Configure</a>{% endif %}
         </p>
-        <p>Exit Node: <strong>{{ exit_node or 'None' }}</strong>
-          {% if exit_node_error %}<div class="alert alert-danger small">{{ exit_node_error }}</div>{% endif %}
-        </p>
+        {% if exit_node_error %}
+        <div class="alert alert-warning">
+          There was a problem querying the Border0 service; it may still be starting.<br>
+          Reloading in <span id="home-countdown">10</span> seconds...
+        </div>
+        <script>
+          (function() {
+            var seconds = 10;
+            var el = document.getElementById('home-countdown');
+            var timer = setInterval(function() {
+              seconds--;
+              if (el) { el.textContent = seconds; }
+              if (seconds <= 0) {
+                clearInterval(timer);
+                location.reload();
+              }
+            }, 1000);
+          })();
+        </script>
+        {% else %}
+        <p>Exit Node: <strong>{{ exit_node or 'None' }}</strong></p>
+        {% endif %}
         <p>Service:
           {% if service_enabled %}
             <span class="badge bg-success">Enabled</span>

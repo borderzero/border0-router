@@ -120,6 +120,13 @@ def index():
             with open(lan_iface_path, 'w') as f:
                 f.write(iface + '\n')
             flash(f'LAN interface {iface} configured statically', 'success')
+            # Automatically restart the LAN interface
+            try:
+                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
+                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
+                flash(f'LAN interface {iface} restarted', 'success')
+            except Exception as e:
+                flash(f'Failed to restart LAN interface: {e}', 'danger')
         except Exception as e:
             flash(f'Failed to save LAN config: {e}', 'danger')
         return redirect(url_for('lan.index'))
@@ -313,6 +320,13 @@ def wifi_save(iface):
         with open(cfg_file, 'w') as f:
             f.write(content)
         flash(f'Configuration for {iface} saved', 'success')
+        # Automatically enable and restart the hostapd service for this interface
+        try:
+            subprocess.run(['systemctl', 'enable', service], capture_output=True, text=True, timeout=10)
+            subprocess.run(['systemctl', 'restart', service], capture_output=True, text=True, timeout=10)
+            flash(f'Service {service} enabled and restarted', 'success')
+        except Exception as e:
+            flash(f'Failed to enable/restart service {service}: {e}', 'danger')
     except Exception as e:
         flash(f'Failed to save config for {iface}: {e}', 'danger')
     return redirect(url_for('lan.index'))

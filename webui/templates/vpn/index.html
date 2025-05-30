@@ -21,85 +21,92 @@
           </div>
         </form>
         {% else %}
-        <div class="d-flex justify-content-between align-items-center">
-          <div>
-            <label class="form-label mb-0">Organization:</label>
-            <div><strong>{{ org }}</strong></div>
-          </div>
-          <div>
-            <form method="post" class="d-inline">
-              <button type="submit" name="action" value="reset_org" class="btn btn-secondary me-2"
-                      title="Reset saved organization, client token, and device state; stop VPN service">Reset Org Settings</button>
-            </form>
-            <form method="post" class="d-inline">
-              <button type="submit" name="action" value="login" class="btn btn-primary"
-                      title="Login to Border0 to obtain a new client token for your organization">Login to Border0</button>
-            </form>
-          </div>
+        <div>
+          <label class="form-label mb-0">Organization:</label>
+          <div><strong>{{ org }}</strong></div>
         </div>
         {% endif %}
       </div>
     </div>
   </div>
   {% if login_url %}
-  <div class="alert alert-info">
-    <script>window.open('{{ login_url }}', '_blank');</script>
-    <p>A new window has been opened for Border0 authentication.<br>
-    If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here</a> to proceed.</p>
-    <p>Once authentication is complete, reload this page to continue.</p>
-    <p>Auto-refreshing in <span id="b0-countdown">60</span> seconds...</p>
-    <script>
-      (function(){
-        var seconds = 60;
-        var countdownEl = document.getElementById('b0-countdown');
-        if (countdownEl) {
-          var interval = setInterval(function() {
-            seconds--;
-            countdownEl.textContent = seconds;
-            if (seconds <= 0) {
-              clearInterval(interval);
-              location.reload();
-            }
-          }, 1000);
-        }
-      })();
-    </script>
-  </div>
-{% endif %}
-
-{% if user_info %}
-<div class="card mb-4">
-  <div class="card-body">
-    <h2>User Information</h2>
-    <div class="d-flex align-items-center">
-      <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
-      <div>
-        <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
-        <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
-        <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
-        <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
-      </div>
-    </div>
-  </div>
-</div>
-{% endif %}
-
-
-{% if org %}
-<div class="row mb-4">
-  <div class="card h-100">
-    <div class="card-header"><strong>Border0 Device Service Status</strong></div>
+  <div class="card mb-4">
+    <div class="card-header"><h2>Border0 Login</h2></div>
     <div class="card-body">
+      <p>You are logging into organization: <strong>{{ org }}</strong></p>
+      <p>A new window has been opened for authentication.<br>
+      If it didn’t open automatically, <a href="{{ login_url }}" target="_blank">click here to open login</a>.</p>
       <div class="mb-3">
-        <span class="fw-bold {{ 'text-success' if service_enabled else 'text-danger' }}">{{ 'Enabled' if service_enabled else 'Disabled' }}</span>&nbsp;/&nbsp;<span class="fw-bold {{ 'text-success' if service_active else 'text-danger' }}">{{ 'Active' if service_active else 'Inactive' }}</span>
+        <div class="progress">
+          <div id="b0-progress" class="progress-bar bg-info" role="progressbar" style="width: 100%;" aria-valuemin="0" aria-valuemax="60"></div>
+        </div>
       </div>
-      <pre class="small text-muted" style="white-space: pre-wrap; word-wrap: break-word;">{{ device_status }}</pre>
-      <form method="post" class="mt-3">
-        <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
-      </form>
+      <p>Time remaining: <span id="b0-countdown">60</span> seconds.</p>
+      <div class="mt-3">
+        <button type="button" class="btn btn-secondary me-2" onclick="location.reload()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="window.open('{{ login_url }}', '_blank')">Re-open Login</button>
+      </div>
     </div>
   </div>
-</div>
+  <script>
+    (function(){
+      var seconds = 60;
+      var total = seconds;
+      var countdownEl = document.getElementById('b0-countdown');
+      var progressEl = document.getElementById('b0-progress');
+      window.open('{{ login_url }}', '_blank');
+      var interval = setInterval(function() {
+        seconds--;
+        if (countdownEl) countdownEl.textContent = seconds;
+        if (progressEl) progressEl.style.width = (seconds/total*100) + '%';
+        if (seconds <= 0) {
+          clearInterval(interval);
+          location.reload();
+        }
+      }, 1000);
+    })();
+  </script>
+  {% endif %}
+
+{# Combine User Info and Device Service Status side-by-side #}
+{% if user_info or org %}
+  <div class="row mb-4">
+    {% if user_info %}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2>User Information</h2>
+          <div class="d-flex align-items-center">
+            <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
+            <div>
+              <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
+              <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
+              <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
+              <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if org %}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header"><strong>Border0 Device Service Status</strong></div>
+        <div class="card-body">
+          <div class="mb-3">
+            <span class="fw-bold {{ 'text-success' if service_enabled else 'text-danger' }}">{{ 'Enabled' if service_enabled else 'Disabled' }}</span>
+            &nbsp;/&nbsp;
+            <span class="fw-bold {{ 'text-success' if service_active else 'text-danger' }}">{{ 'Active' if service_active else 'Inactive' }}</span>
+          </div>
+          <form method="post" class="mt-3">
+            <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
 {% endif %}
 
 {% if service_active %}

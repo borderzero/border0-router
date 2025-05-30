@@ -1,6 +1,47 @@
 import os
 
 import datetime
+import secrets
+
+# Ensure SECRET_KEY exists and persist it in /etc/sysconfig/border0-webui on first run
+_ENV_FILE = '/etc/sysconfig/border0-webui'
+def _ensure_secret_key():
+    # If already in environment, skip
+    if os.environ.get('SECRET_KEY'):
+        return
+    key = None
+    # Try to load existing key from file
+    if os.path.isfile(_ENV_FILE):
+        try:
+            with open(_ENV_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if line.startswith('export '):
+                        line = line[len('export '):]
+                    parts = line.split('=', 1)
+                    if len(parts) != 2:
+                        continue
+                    k, v = parts
+                    if k.strip() == 'SECRET_KEY':
+                        key = v.strip().strip('"').strip("'")
+                        break
+        except Exception:
+            key = None
+    # Generate and save if not found
+    if not key:
+        key = secrets.token_urlsafe(32)
+        try:
+            os.makedirs(os.path.dirname(_ENV_FILE), exist_ok=True)
+            with open(_ENV_FILE, 'w') as f:
+                f.write(f'SECRET_KEY="{key}"\n')
+        except Exception:
+            pass
+    # Export for Flask
+    os.environ.setdefault('SECRET_KEY', key)
+
+_ensure_secret_key()
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me')

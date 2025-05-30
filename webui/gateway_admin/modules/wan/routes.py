@@ -103,6 +103,13 @@ def index():
             return redirect(url_for('wan.index'))
 
         flash(f'WAN interface {iface} configured ({m})', 'success')
+        # Automatically restart the WAN interface
+        try:
+            subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
+            subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
+            flash(f'WAN interface {iface} restarted', 'success')
+        except Exception as e:
+            flash(f'Failed to restart WAN interface: {e}', 'danger')
         return redirect(url_for('wan.index'))
 
     # On GET, if static mode, load existing static fields

@@ -217,13 +217,9 @@ def login_status():
     return jsonify({'token_exists': os.path.isfile(token_file)})
 @auth_bp.route('/switch_user', methods=['POST'])
 def switch_user():
-    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
-    try:
-        if os.path.isfile(token_file):
-            os.remove(token_file)
-    except Exception:
-        pass
-    flash('Token removed; please log in as a different user.', 'info')
+    # Log out the current UI user; retain client token for VPN
+    logout_user()
+    flash('Please log in as a different user.', 'info')
     return redirect(url_for('auth.login'))
 
 @auth_bp.route('/logout', methods=['GET', 'POST'])

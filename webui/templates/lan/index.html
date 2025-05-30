@@ -45,7 +45,6 @@
         <div class="form-text">Enter up to two DNS server IP addresses.</div>
       </div>
       <button type="submit" name="action" value="save" class="btn btn-primary">Save LAN Configuration</button>
-      <button type="submit" name="action" value="restart" class="btn btn-secondary ms-2">Restart LAN Interface</button>
     </form>
   </div>
   <div class="col-md-6">
@@ -93,18 +92,24 @@
   <hr>
   <h2>Wi-Fi Configuration</h2>
   {% if wifi_interfaces %}
+  {# determine default tab: prefer wlan0 if present, else first interface #}
+  {% if wifi_interfaces | selectattr('name','equalto','wlan0') | list %}
+    {% set default_tab = 'wlan0' %}
+  {% else %}
+    {% set default_tab = wifi_interfaces[0].name %}
+  {% endif %}
   <ul class="nav nav-tabs" id="lanWifiTabs" role="tablist">
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#content-general" type="button" role="tab" aria-controls="content-general" aria-selected="true">General</button>
+      <button class="nav-link {% if default_tab=='general' %}active{% endif %}" id="tab-general" data-bs-toggle="tab" data-bs-target="#content-general" type="button" role="tab" aria-controls="content-general" aria-selected="{{ 'true' if default_tab=='general' else 'false' }}">General</button>
     </li>
     {% for iface in wifi_interfaces %}
     <li class="nav-item" role="presentation">
-      <button class="nav-link" id="tab-{{ iface.name }}" data-bs-toggle="tab" data-bs-target="#content-{{ iface.name }}" type="button" role="tab" aria-controls="content-{{ iface.name }}" aria-selected="false">{{ iface.name }}</button>
+      <button class="nav-link {% if default_tab==iface.name %}active{% endif %}" id="tab-{{ iface.name }}" data-bs-toggle="tab" data-bs-target="#content-{{ iface.name }}" type="button" role="tab" aria-controls="content-{{ iface.name }}" aria-selected="{{ 'true' if default_tab==iface.name else 'false' }}">{{ iface.name }}</button>
     </li>
     {% endfor %}
   </ul>
   <div class="tab-content mt-3" id="lanWifiTabsContent">
-    <div class="tab-pane fade show active" id="content-general" role="tabpanel" aria-labelledby="tab-general">
+    <div class="tab-pane fade {% if default_tab=='general' %}show active{% endif %}" id="content-general" role="tabpanel" aria-labelledby="tab-general">
       <div class="card mb-4">
         <div class="card-body">
           <h5 class="card-title">All Interfaces Summary</h5>
@@ -133,7 +138,7 @@
       </div>
     </div>
     {% for iface in wifi_interfaces %}
-    <div class="tab-pane fade" id="content-{{ iface.name }}" role="tabpanel" aria-labelledby="tab-{{ iface.name }}">
+    <div class="tab-pane fade {% if default_tab==iface.name %}show active{% endif %}" id="content-{{ iface.name }}" role="tabpanel" aria-labelledby="tab-{{ iface.name }}">
       <div class="row">
         <div class="col-md-6">
           <div class="card mb-4">
@@ -171,14 +176,8 @@
                     </button>
                   </div>
                 </div>
-                <div class="d-flex align-items-center">
-                  <button type="submit" name="action" value="save" class="btn btn-primary me-2">Save Settings</button>
-                  {% if iface.service_enabled %}
-                    <button type="submit" name="action" value="disable" class="btn btn-warning me-2" formnovalidate>Disable Service</button>
-                  {% else %}
-                    <button type="submit" name="action" value="enable" class="btn btn-success me-2" formnovalidate>Enable Service</button>
-                  {% endif %}
-                  <button type="submit" name="action" value="restart" class="btn btn-secondary" formnovalidate>Restart Service</button>
+                <div class="d-flex">
+                  <button type="submit" name="action" value="save" class="btn btn-primary">Save Settings</button>
                 </div>
               </form>
             </div>
