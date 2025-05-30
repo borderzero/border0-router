@@ -26,13 +26,18 @@ def index():
     update_available = data.get('update_available', False)
     new_version = data.get('new_version')
     # --- Dashboard data collection ---
-    # Border0: organization
+    # Border0: organization (prefer env override, else read org_subdomain from file)
     org = current_app.config.get('BORDER0_ORG')
     if not org:
+        org = None
         org_path = current_app.config.get('BORDER0_ORG_PATH')
         try:
-            with open(org_path) as f:
-                org = f.read().strip()
+            raw = open(org_path).read().strip()
+            try:
+                data = json.loads(raw)
+                org = data.get('org_subdomain', '')
+            except ValueError:
+                org = raw
         except Exception:
             org = None
     # Border0: exit node

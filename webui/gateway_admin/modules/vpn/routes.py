@@ -44,7 +44,7 @@ def index():
 
     if request.method == 'POST':
         action = request.form.get('action')
-        # Reset organization and client token settings, and stop VPN service
+        # Reset organization settings and stop VPN service
         if action == 'reset_org':
             errors = []
             # Remove saved organization file
@@ -54,15 +54,10 @@ def index():
                     os.remove(org_path)
             except Exception as e:
                 errors.append(f"org file removal error: {e}")
-            # Remove saved client token
-            token_path = Config.BORDER0_TOKEN_PATH
-            try:
-                if token_path and os.path.isfile(token_path):
-                    os.remove(token_path)
-            except Exception as e:
-                errors.append(f"token removal error: {e}")
+            # Note: do not remove client token; login will overwrite existing token
             # Remove device state file
             try:
+                token_path = Config.BORDER0_TOKEN_PATH
                 state_dir = os.path.dirname(token_path)
                 state_file = os.path.join(state_dir, 'device.state.yaml')
                 if os.path.isfile(state_file):
@@ -78,7 +73,7 @@ def index():
             if errors:
                 flash(f"Reset completed with errors: {'; '.join(errors)}", 'warning')
             else:
-                flash('Organization settings, client token, and device state reset; VPN service stopped.', 'success')
+                flash('Organization settings reset; VPN service stopped.', 'success')
             return redirect(url_for('vpn.index'))
         # Save organization name
         if action == 'save_org':
