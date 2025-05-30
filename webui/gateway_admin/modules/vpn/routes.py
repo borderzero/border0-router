@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, current_app, render_template, request, redirect, url_for, flash
 import json
 import base64
 from flask_login import login_required
@@ -108,6 +108,10 @@ def index():
                         preexec_fn=os.setsid,
                         env=env
                     )
+
+                    # 🧹 Reap the process in background
+                    threading.Thread(target=_reap, args=(proc,), daemon=True).start()
+
                     output_lines = []
                     pattern_url = re.compile(r'(https?://\S+)')
                     login_url = None
@@ -133,6 +137,7 @@ def index():
                         timer.daemon = True
                         timer.start()
                         # monitor token then restart device
+
                         def _monitor(token_path, proc):
                             for _ in range(60):
                                 if os.path.isfile(token_path):
@@ -190,6 +195,10 @@ def index():
                         preexec_fn=os.setsid,
                         env=env
                     )
+
+                    # 🧹 Reap the process in background
+                    threading.Thread(target=_reap, args=(proc,), daemon=True).start()
+
                     # Capture output until the first HTTP(S) URL appears
                     output_lines = []
                     pattern_url = re.compile(r'(https?://\S+)')
@@ -379,3 +388,11 @@ def index():
         device_status=device_status,
         user_info=user_info,
     )
+
+def _reap(proc, timeout=360):
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        current_app.logger.warning(f"Process {proc.pid} did not exit within {timeout} seconds")
+    except Exception:
+        pass
