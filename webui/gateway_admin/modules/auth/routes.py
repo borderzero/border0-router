@@ -332,9 +332,9 @@ def system():
             except Exception as e:
                 flash(f'Failed to reboot system: {e}', 'danger')
             return redirect(url_for('auth.system'))
-        # Upgrade page
+        # Upgrade page - redirect to upgrade workflow in home blueprint
         if action == 'upgrade':
-            return redirect(url_for('auth.upgrade'))
+            return redirect(url_for('home.upgrade_page'))
     # GET: display system info and version status
     # Uptime
     try:
