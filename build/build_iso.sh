@@ -236,9 +236,6 @@ echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
 echo "Copying authorized_keys into the image..."
 mkdir -p /root/.ssh
 echo "# $(date)" >> /root/.ssh/authorized_keys
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFWzhiL+gabtc8WyJILjDei4KX8uXD0Y1wPAdt8/tCaB greg@xps15" >> /root/.ssh/authorized_keys
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILf5v3Md3f+pnNQ96XZtBvdok44Ej7UuzPTB8XrhXtk2 greg@XPS15" >> /root/.ssh/authorized_keys
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDmuPYG2E186hP4tKgqW6cmOOtr3SqkIXKj2PJSjGUd+ greg+rnd@XPS15" >> /root/.ssh/authorized_keys
 
 mkdir -p /home/pi/.ssh
 cat /root/.ssh/authorized_keys >> /home/pi/.ssh/authorized_keys

@@ -11,6 +11,7 @@ import threading
 import time
 import signal
 import base64
+import hashlib
 import datetime
 import urllib.request
 from ...extensions import login_manager
@@ -348,7 +349,38 @@ def system():
                 subprocess.run(['systemctl', 'reboot'], check=False)
             except Exception as e:
                 flash(f'Failed to reboot system: {e}', 'danger')
+
+        if action == 'add_ssh_key':
+            key_line = request.form.get('ssh_key', '').strip()
+            parts = key_line.split(None, 2)
+            if len(parts) < 2 or parts[0] not in ('ssh-ed25519', 'ssh-ed25519-sk', 'ssh-rsa'):
+                flash('Invalid SSH public key format. Supported types: ed25519, ed25519-sk, rsa.', 'danger')
+                return redirect(url_for('auth.system'))
+            key_type, key_data = parts[0], parts[1]
+            comment = parts[2] if len(parts) > 2 else ''
+            if not re.match(r'^[A-Za-z0-9+/=]+$', key_data):
+                flash('Invalid SSH public key data.', 'danger')
+                return redirect(url_for('auth.system'))
+            ssh_dir = os.path.expanduser('~/.ssh')
+            auth_file = os.path.join(ssh_dir, 'authorized_keys')
+            os.makedirs(ssh_dir, exist_ok=True)
+            os.chmod(ssh_dir, 0o700)
+            existing = []
+            if os.path.exists(auth_file):
+                with open(auth_file) as f:
+                    existing = [l.strip() for l in f if l.strip()]
+            if key_line in existing:
+                flash('SSH key already provisioned.', 'info')
+                return redirect(url_for('auth.system'))
+            try:
+                with open(auth_file, 'a') as f:
+                    f.write(key_line + '\n')
+                os.chmod(auth_file, 0o600)
+                flash('SSH key added successfully.', 'success')
+            except Exception as e:
+                flash(f'Failed to add SSH key: {e}', 'danger')
             return redirect(url_for('auth.system'))
+
         # Upgrade page - redirect to upgrade workflow in home blueprint
         if action == 'upgrade':
             return redirect(url_for('home.upgrade_page'))
@@ -373,10 +405,37 @@ def system():
             new_version = data.get('new_version')
     except Exception:
         pass
+
+    ssh_keys = []
+    ssh_dir = os.path.expanduser('~/.ssh')
+    auth_file = os.path.join(ssh_dir, 'authorized_keys')
+    try:
+        with open(auth_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split(None, 2)
+                if len(parts) < 2 or parts[0] not in ('ssh-ed25519', 'ssh-ed25519-sk', 'ssh-rsa'):
+                    continue
+                key_type, key_data = parts[0], parts[1]
+                comment = parts[2] if len(parts) > 2 else ''
+                try:
+                    key_bin = base64.b64decode(key_data)
+                    fp_digest = hashlib.sha256(key_bin).digest()
+                    fp_b64 = base64.b64encode(fp_digest).decode('ascii').rstrip('=')
+                    fingerprint = f'SHA256:{fp_b64}'
+                except Exception:
+                    fingerprint = ''
+                ssh_keys.append({'type': key_type, 'comment': comment, 'fingerprint': fingerprint})
+    except Exception:
+        ssh_keys = []
+
     return render_template(
         'auth/system.html',
         uptime=uptime_str,
         current_version=current_version,
         update_available=update_available,
-        new_version=new_version
+        new_version=new_version,
+        ssh_keys=ssh_keys
     )
