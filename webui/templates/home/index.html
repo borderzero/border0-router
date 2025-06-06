@@ -1,31 +1,24 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Home</h1>
-<div class="card mb-4">
-  <div class="card-body">
-    <p class="text-muted">Welcome to the Border0 Router Admin Panel. Use the sidebar to navigate to Wi-Fi, LAN, WAN, VPN, and System settings.</p>
-  </div>
-</div>
-
-{% if user_info %}
-<div class="card mb-4">
-  <div class="card-body">
-    <h2>User Information</h2>
-    <div class="d-flex align-items-center">
-      <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
-      <div>
-        <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
-        <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
-        <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
-        <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+<div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
+  {% if user_info %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h2>User Information</h2>
+        <div class="d-flex align-items-center">
+          <img src="{{ user_info.picture }}" alt="{{ user_info.name }}" height="48" class="rounded-circle me-3">
+          <div>
+            <p class="mb-1">{{ user_info.name }} <small class="text-muted">({{ user_info.nickname }})</small></p>
+            <p class="mb-1"><strong>Email:</strong> {{ user_info.user_email }}</p>
+            <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
+            <p class="mb-0"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-</div>
-{% endif %}
-
-
-<div class="row row-cols-1 row-cols-md-2 g-4">
+  {% endif %}
   <div class="col">
     <div class="card h-100">
       <div class="card-header">Border0</div>
@@ -85,6 +78,9 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
   <div class="col">
     <div class="card h-100">
       <div class="card-header">WAN</div>
@@ -111,17 +107,23 @@
           <p>Status: <strong>{{ lan_info.status }}</strong></p>
           <p>IPv4: <strong>{{ lan_info.ipv4 or 'None' }}</strong></p>
           {% if lan_traffic %}<p>Traffic: Sent {{ lan_traffic.sent }}, Recv {{ lan_traffic.recv }}</p>{% endif %}
-          <p>Clients:</p>
-          {% if lan_clients %}
-            <ul class="list-unstyled small">
-              {% for c in lan_clients %}<li>{{ c.ip }} ({{ c.mac }})</li>{% endfor %}
-            </ul>
-          {% else %}
-            <p class="text-muted small">No clients found.</p>
-          {% endif %}
         {% else %}
           <p class="text-warning">LAN interface not configured.</p>
           <a href="{{ url_for('lan.index') }}" class="link-secondary">Configure LAN</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">LAN Clients</div>
+      <div class="card-body">
+        {% if lan_clients %}
+          <ul class="list-unstyled small">
+            {% for c in lan_clients %}<li>{{ c.ip }} ({{ c.mac }})</li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="text-muted small">No clients found.</p>
         {% endif %}
       </div>
     </div>
