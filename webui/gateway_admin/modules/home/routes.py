@@ -147,16 +147,45 @@ def index():
         nic = psutil.net_io_counters(pernic=True).get(lan_iface)
         if nic:
             lan_traffic = {'sent': human(nic.bytes_sent), 'recv': human(nic.bytes_recv)}
-        # ARP clients
+        dhcp_cache_file = os.path.join(cache_dir, f'dhcp_clients_{lan_iface}.json')
         try:
-            with open('/proc/net/arp') as arp:
-                lines = arp.readlines()[1:]
-            for line in lines:
-                parts = line.split()
-                if parts[5] == lan_iface:
-                    lan_clients.append({'ip': parts[0], 'mac': parts[3]})
+            os.makedirs(os.path.dirname(dhcp_cache_file), exist_ok=True)
+            with open(dhcp_cache_file) as f:
+                lan_clients = json.load(f)
         except Exception:
-            pass
+            leases = {}
+            log_file = f'/var/log/dnsmasq_{lan_iface}.log'
+            try:
+                output = subprocess.check_output(['tail', '-n', '10000', log_file], text=True)
+                for line in reversed(output.splitlines()):
+                    m = re.search(r'DHCPACK\([^)]*\)\s+(\d+\.\d+\.\d+\.\d+)\s+([0-9A-Fa-f:]+)\s+(\S+)', line)
+                    if m:
+                        ip, mac, hostname = m.group(1), m.group(2).lower(), m.group(3)
+                        if mac not in leases:
+                            leases[mac] = {'hostname': hostname, 'ip': ip, 'mac': mac}
+                try:
+                    import manuf
+                    parser = manuf.MacParser()
+                    for v in leases.values():
+                        v['manufacturer'] = parser.get_manuf(v['mac']) or ''
+                except Exception:
+                    for v in leases.values():
+                        v['manufacturer'] = ''
+                lan_clients = list(leases.values())
+                tmp = dhcp_cache_file + '.tmp'
+                with open(tmp, 'w') as f:
+                    json.dump(lan_clients, f)
+                os.replace(tmp, dhcp_cache_file)
+            except Exception:
+                try:
+                    with open('/proc/net/arp') as arp:
+                        lines = arp.readlines()[1:]
+                    for line in lines:
+                        parts = line.split()
+                        if parts[5] == lan_iface:
+                            lan_clients.append({'hostname': None, 'ip': parts[0], 'mac': parts[3], 'manufacturer': ''})
+                except Exception:
+                    pass
 
     user_info = None
     meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')

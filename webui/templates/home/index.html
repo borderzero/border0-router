@@ -120,7 +120,9 @@
       <div class="card-body">
         {% if lan_clients %}
           <ul class="list-unstyled small">
-            {% for c in lan_clients %}<li>{{ c.ip }} ({{ c.mac }})</li>{% endfor %}
+            {% for c in lan_clients %}
+              <li>{{ c.hostname }} : {{ c.ip }} : ({{ c.mac }}){% if c.manufacturer %} : {{ c.manufacturer }}{% endif %}</li>
+            {% endfor %}
           </ul>
         {% else %}
           <p class="text-muted small">No clients found.</p>
