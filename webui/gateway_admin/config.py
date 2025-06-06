@@ -61,6 +61,11 @@ class Config:
         'BORDER0_ORG_PATH',
         os.path.expanduser('/etc/border0/org')
     )
+    # Path where decoded JWT token metadata will be stored for UI display
+    BORDER0_TOKEN_METADATA_PATH = os.environ.get(
+        'BORDER0_TOKEN_METADATA_PATH',
+        os.path.expanduser('/etc/border0/token_metadata.json')
+    )
     # Path where historical metrics are logged (JSON lines, timestamp in ms)
     METRICS_LOG_PATH = os.environ.get(
         'METRICS_LOG_PATH',

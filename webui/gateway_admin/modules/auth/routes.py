@@ -187,13 +187,27 @@ def login():
                                     }, f)
                         except Exception:
                             pass
+                        meta_path = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+                        try:
+                            os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+                            with open(meta_path, 'w') as mf:
+                                json.dump(payload, mf)
+                        except Exception:
+                            pass
                         return redirect(request.args.get('next') or url_for('home.index'))
             except Exception as e:
                 flash(f'Failed to authenticate: {e}', 'danger')
 
     token_exists = os.path.isfile(token_file)
+    # load any stored token metadata for display; fall back to decoding live token
     user_info = None
-    if token_exists:
+    meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+    if meta_file and os.path.isfile(meta_file):
+        try:
+            user_info = json.loads(open(meta_file).read())
+        except Exception:
+            user_info = None
+    elif token_exists:
         try:
             token_str = open(token_file).read().strip()
             parts = token_str.split('.')

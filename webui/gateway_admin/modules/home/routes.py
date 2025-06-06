@@ -158,18 +158,31 @@ def index():
         except Exception:
             pass
 
-    # retrieve user info from stored JWT token for display
     user_info = None
-    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
-    if token_file and os.path.isfile(token_file):
+    meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+    if meta_file and os.path.isfile(meta_file):
         try:
-            token_str = open(token_file).read().strip()
-            parts = token_str.split('.')
-            if len(parts) >= 2:
-                padding = '=' * (-len(parts[1]) % 4)
-                user_info = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+            user_info = json.loads(open(meta_file).read())
         except Exception:
             user_info = None
+    else:
+        token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+        if token_file and os.path.isfile(token_file):
+            try:
+                token_str = open(token_file).read().strip()
+                parts = token_str.split('.')
+                if len(parts) >= 2:
+                    padding = '=' * (-len(parts[1]) % 4)
+                    payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+                    user_info = payload
+                    try:
+                        os.makedirs(os.path.dirname(meta_file), exist_ok=True)
+                        with open(meta_file, 'w') as mf:
+                            json.dump(payload, mf)
+                    except Exception:
+                        pass
+            except Exception:
+                user_info = None
 
     return render_template(
         'home/index.html',
