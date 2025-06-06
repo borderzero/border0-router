@@ -67,24 +67,24 @@ jobs:
           img="${{ steps.rename_image.outputs.path }}"
           sha256=$(sha256sum "$img" | awk '{print $1}')
           size=$(du -h "$img" | cut -f1)
-          cat << EOF >> $GITHUB_OUTPUT
-          body=## Raspberry Pi ISO
-
-          **Filename:** ${{ steps.rename_image.outputs.name }}
-          **Size:** $size
-          **SHA256:** \`$sha256\`
-
-          ### Usage
-          1. Download the ISO.
-          2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager).
-          3. Insert into your Raspberry Pi and boot.
-
-          ### Requirements
-          - Raspberry Pi 3/4/5 (64-bit)
-          - SD card (8GB+ recommended)
-
-          [Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)
-          EOF
+          {
+            echo "body=## Raspberry Pi ISO"
+            echo
+            echo "**Filename:** ${{ steps.rename_image.outputs.name }}"
+            echo "**Size:** $size"
+            echo "**SHA256:** \`$sha256\`"
+            echo
+            echo "### Usage"
+            echo "1. Download the ISO."
+            echo "2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager)."
+            echo "3. Insert into your Raspberry Pi and boot."
+            echo
+            echo "### Requirements"
+            echo "- Raspberry Pi 3/4/5 (64-bit)"
+            echo "- SD card (8GB+ recommended)"
+            echo
+            echo "[Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)"
+          } >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         id: create_release
