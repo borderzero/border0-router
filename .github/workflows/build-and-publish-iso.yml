@@ -67,24 +67,24 @@ jobs:
           img="${{ steps.rename_image.outputs.path }}"
           sha256=$(sha256sum "$img" | awk '{print $1}')
           size=$(du -h "$img" | cut -f1)
-          {
-            echo "body=## Raspberry Pi ISO"
-            echo
-            echo "**Filename:** ${{ steps.rename_image.outputs.name }}"
-            echo "**Size:** $size"
-            echo "**SHA256:** \`$sha256\`"
-            echo
-            echo "### Usage"
-            echo "1. Download the ISO."
-            echo "2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager)."
-            echo "3. Insert into your Raspberry Pi and boot."
-            echo
-            echo "### Requirements"
-            echo "- Raspberry Pi 3/4/5 (64-bit)"
-            echo "- SD card (8GB+ recommended)"
-            echo
-            echo "[Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)"
-          } >> $GITHUB_OUTPUT
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "## Raspberry Pi ISO" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "**Filename:** ${{ steps.rename_image.outputs.name }}" >> $GITHUB_OUTPUT
+          echo "**Size:** $size" >> $GITHUB_OUTPUT
+          echo "**SHA256:** \`$sha256\`" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Usage" >> $GITHUB_OUTPUT
+          echo "1. Download the ISO." >> $GITHUB_OUTPUT
+          echo "2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager)." >> $GITHUB_OUTPUT
+          echo "3. Insert into your Raspberry Pi and boot." >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "### Requirements" >> $GITHUB_OUTPUT
+          echo "- Raspberry Pi 3/4/5 (64-bit)" >> $GITHUB_OUTPUT
+          echo "- SD card (8GB+ recommended)" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "[Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         id: create_release
