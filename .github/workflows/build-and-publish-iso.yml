@@ -61,6 +61,31 @@ jobs:
           echo "path=$dir/$new_name" >> $GITHUB_OUTPUT
           echo "name=$new_name" >> $GITHUB_OUTPUT
 
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          img="${{ steps.rename_image.outputs.path }}"
+          sha256=$(sha256sum "$img" | awk '{print $1}')
+          size=$(du -h "$img" | cut -f1)
+          cat << EOF >> $GITHUB_OUTPUT
+          body=## Raspberry Pi ISO
+
+          **Filename:** ${{ steps.rename_image.outputs.name }}
+          **Size:** $size
+          **SHA256:** \`$sha256\`
+
+          ### Usage
+          1. Download the ISO.
+          2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager).
+          3. Insert into your Raspberry Pi and boot.
+
+          ### Requirements
+          - Raspberry Pi 3/4/5 (64-bit)
+          - SD card (8GB+ recommended)
+
+          [Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)
+          EOF
+
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -69,6 +94,7 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           release_name: "Raspberry Pi ISO Build #${{ github.run_number }}"
+          body: ${{ steps.release_notes.outputs.body }}
           draft: false
           prerelease: false
 
