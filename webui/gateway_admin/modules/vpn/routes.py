@@ -117,6 +117,12 @@ def index():
                         if m:
                             login_url = m.group(1)
                             break
+
+                    if proc.poll() is not None:
+                        try:
+                            proc.wait()
+                        except Exception:
+                            pass
                     if login_url:
                         # schedule CLI login process cleanup after timeout
                         def _cleanup(proc):
@@ -199,6 +205,12 @@ def index():
                         if m:
                             login_url = m.group(1)
                             break
+
+                    if proc.poll() is not None:
+                        try:
+                            proc.wait()
+                        except Exception:
+                            pass
                     if login_url:
                         # schedule CLI login process cleanup after timeout
                         def _cleanup_login(proc):
