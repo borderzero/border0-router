@@ -253,7 +253,7 @@ def system():
         # Reboot
         if action == 'reboot':
             try:
-                subprocess.Popen(['systemctl', 'reboot'])
+                subprocess.run(['systemctl', 'reboot'], check=False)
                 flash('Rebooting system...', 'info')
             except Exception as e:
                 flash(f'Failed to reboot system: {e}', 'danger')
@@ -340,9 +340,12 @@ def system():
             for file in glob.glob('/opt/border0/defaults/etc/hostapd/*.conf'):
                 shutil.copy(file, f'/etc/hostapd/{os.path.basename(file)}')
             # Sync and reboot
-            subprocess.Popen(['sync'])
             try:
-                subprocess.Popen(['systemctl', 'reboot'])
+                subprocess.run(['sync'], check=False)
+            except Exception:
+                pass
+            try:
+                subprocess.run(['systemctl', 'reboot'], check=False)
             except Exception as e:
                 flash(f'Failed to reboot system: {e}', 'danger')
             return redirect(url_for('auth.system'))
