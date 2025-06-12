@@ -127,7 +127,10 @@
         {% if lan_clients %}
           <ul class="list-unstyled small">
             {% for c in lan_clients %}
-              <li>{{ c.hostname }} : {{ c.ip }} : ({{ c.mac }}){% if c.manufacturer %} : {{ c.manufacturer }}{% endif %}</li>
+              <li>
+                <span class="d-inline-block me-2 rounded-circle {% if c.state == 'REACHABLE' %}bg-success{% else %}bg-secondary{% endif %}" style="width:0.5rem; height:0.5rem;"></span>
+                {{ c.hostname }} : {{ c.ip }} : ({{ c.mac }}){% if c.manufacturer %} : {{ c.manufacturer }}{% endif %}{% if c.state %} : <small>({{ c.state }})</small>{% endif %}
+              </li>
             {% endfor %}
           </ul>
         {% else %}

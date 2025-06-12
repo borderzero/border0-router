@@ -194,18 +194,66 @@ def index():
             except Exception:
                 pass
 
-        # always merge in ARP table entries for current LAN iface
         try:
-            with open('/proc/net/arp') as arp_f:
-                lines = arp_f.readlines()[1:]
-            for line in lines:
-                parts = line.split()
-                if parts[5] == lan_iface:
-                    ip, mac = parts[0], parts[3].lower()
-                    if mac not in leases:
-                        leases[mac] = {'hostname': None, 'ip': ip, 'mac': mac, 'manufacturer': ''}
+            # fetch neighbor table JSON; ignore non-zero exit codes so we still parse entries even if some are FAILED
+            proc = subprocess.run(
+                ['ip', '-j', 'neigh', 'show', 'dev', lan_iface],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True
+            )
+            neigh_entries = json.loads(proc.stdout or '[]')
+            for entry in neigh_entries:
+                # if JSON includes device, skip other interfaces; otherwise assume filtered by 'show dev'
+                dev = entry.get('dev')
+                if dev and dev != lan_iface:
+                    continue
+                dst = entry.get('dst')
+                # only IPv4
+                if not dst or ':' in dst:
+                    continue
+                mac = entry.get('lladdr', '').lower()
+                if not mac:
+                    continue
+                state = entry.get('state')
+                if isinstance(state, list) and state:
+                    state = state[0]
+                # skip unreachable entries
+                if state == 'FAILED':
+                    continue
+                existing = leases.get(mac)
+                if existing:
+                    # update only when IP matches or to track IP changes
+                    if existing.get('ip') == dst:
+                        existing['state'] = state
+                    else:
+                        existing['state'] = state
+                        existing['ip'] = dst
+                else:
+                    leases[mac] = {
+                        'hostname': None,
+                        'ip': dst,
+                        'mac': mac,
+                        'manufacturer': '',
+                        'state': state
+                    }
         except Exception:
-            pass
+            try:
+                with open('/proc/net/arp') as arp_f:
+                    lines = arp_f.readlines()[1:]
+                for line in lines:
+                    parts = line.split()
+                    if parts[5] == lan_iface:
+                        ip_addr, mac_addr = parts[0], parts[3].lower()
+                        if mac_addr not in leases:
+                            leases[mac_addr] = {
+                                'hostname': None,
+                                'ip': ip_addr,
+                                'mac': mac_addr,
+                                'manufacturer': ''
+                            }
+            except Exception:
+                pass
 
         lan_clients = list(leases.values())
 
