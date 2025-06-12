@@ -14,7 +14,7 @@ DEFAULT_LAN_STATIC_CFG = {
     'address': '192.168.42.1',
     'netmask': '255.255.255.0',
     'gateway': '192.168.42.1',
-    'dns-nameservers': '208.67.220.220 8.8.8.8',
+    'dns-nameservers': '8.8.8.8 1.1.1.1',
     'broadcast': '192.168.42.255'
 }
 
