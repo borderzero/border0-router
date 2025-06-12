@@ -3,10 +3,11 @@ import json
 import base64
 import re
 import subprocess
+import time
 import urllib.request
 import psutil
 import socket
-from flask import Blueprint, render_template, current_app, flash, redirect, url_for
+from flask import Blueprint, render_template, current_app, flash, redirect, url_for, request
 from flask_login import login_required
 
 home_bp = Blueprint('home', __name__, url_prefix='')
@@ -147,13 +148,28 @@ def index():
         nic = psutil.net_io_counters(pernic=True).get(lan_iface)
         if nic:
             lan_traffic = {'sent': human(nic.bytes_sent), 'recv': human(nic.bytes_recv)}
+
+        # DHCP lease cache with TTL and manual refresh
         dhcp_cache_file = os.path.join(cache_dir, f'dhcp_clients_{lan_iface}.json')
+        refresh = request.args.get('refresh_clients')
+        # stale if missing or older than 60 minutes, or on explicit refresh
+        stale = False
         try:
-            os.makedirs(os.path.dirname(dhcp_cache_file), exist_ok=True)
-            with open(dhcp_cache_file) as f:
-                lan_clients = json.load(f)
+            if time.time() - os.path.getmtime(dhcp_cache_file) > 3600:
+                stale = True
         except Exception:
-            leases = {}
+            stale = True
+        if refresh:
+            stale = True
+
+        leases = {}
+        if not stale:
+            try:
+                with open(dhcp_cache_file) as f:
+                    leases = {c['mac']: c for c in json.load(f)}
+            except Exception:
+                leases = {}
+        if stale:
             log_file = f'/var/log/dnsmasq_{lan_iface}.log'
             try:
                 output = subprocess.check_output(['tail', '-n', '10000', log_file], text=True)
@@ -171,21 +187,27 @@ def index():
                 except Exception:
                     for v in leases.values():
                         v['manufacturer'] = ''
-                lan_clients = list(leases.values())
                 tmp = dhcp_cache_file + '.tmp'
                 with open(tmp, 'w') as f:
-                    json.dump(lan_clients, f)
+                    json.dump(list(leases.values()), f)
                 os.replace(tmp, dhcp_cache_file)
             except Exception:
-                try:
-                    with open('/proc/net/arp') as arp:
-                        lines = arp.readlines()[1:]
-                    for line in lines:
-                        parts = line.split()
-                        if parts[5] == lan_iface:
-                            lan_clients.append({'hostname': None, 'ip': parts[0], 'mac': parts[3], 'manufacturer': ''})
-                except Exception:
-                    pass
+                pass
+
+        # always merge in ARP table entries for current LAN iface
+        try:
+            with open('/proc/net/arp') as arp_f:
+                lines = arp_f.readlines()[1:]
+            for line in lines:
+                parts = line.split()
+                if parts[5] == lan_iface:
+                    ip, mac = parts[0], parts[3].lower()
+                    if mac not in leases:
+                        leases[mac] = {'hostname': None, 'ip': ip, 'mac': mac, 'manufacturer': ''}
+        except Exception:
+            pass
+
+        lan_clients = list(leases.values())
 
     user_info = None
     meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')

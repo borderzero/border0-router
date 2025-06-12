@@ -116,7 +116,13 @@
   </div>
   <div class="col">
     <div class="card h-100">
-      <div class="card-header">LAN Clients</div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>LAN Clients</span>
+        <form method="get" action="{{ url_for('home.index') }}" class="m-0">
+          <input type="hidden" name="refresh_clients" value="1">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Refresh</button>
+        </form>
+      </div>
       <div class="card-body">
         {% if lan_clients %}
           <ul class="list-unstyled small">
