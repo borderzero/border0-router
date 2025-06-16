@@ -39,6 +39,9 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 - Ethernet or Wi-Fi client device for connecting to Admin Panel
 
 ## Quick Start
+
+Click here to watch the video: https://www.youtube.com/watch?v=dlWYfnB-tfY 
+
 1. Clone the repo:
    ```bash
    git clone https://github.com/borderzero/border0-router.git
