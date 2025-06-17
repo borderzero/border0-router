@@ -91,10 +91,8 @@ gunicorn --workers 3 --bind 0.0.0.0:80 --factory gateway_admin.app:create_app
 - Python code under `webui/gateway_admin/`, static templates under `webui/static/`.
 
 ## Customization & Configuration
-- Override defaults via environment variables:
+- Override the session secret via environment variable:
   ```bash
-  export ADMIN_USERNAME=myadmin
-  export ADMIN_PASSWORD=mysecurepass
   export SECRET_KEY=$(openssl rand -hex 16)
   ```
 - To adjust build packages, edit `EXTRA_PKGS` and `REMOVE_PKGS` in `build/build_iso.sh`.

@@ -45,9 +45,7 @@ def _ensure_secret_key():
 _ensure_secret_key()
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me')
-    ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'password')
+    SECRET_KEY = os.environ.get('SECRET_KEY')
     # Path to Border0 CLI binary
     BORDER0_CLI_PATH = os.environ.get('BORDER0_CLI_PATH', 'border0')
     # Optional organization name override via environment

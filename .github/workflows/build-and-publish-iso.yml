@@ -79,8 +79,8 @@ jobs:
           echo "2. Write it to an SD card (e.g., with \`dd\` or Raspberry Pi Imager)." >> $GITHUB_OUTPUT
           echo "3. Insert into your Raspberry Pi and boot." >> $GITHUB_OUTPUT
           echo "4. Connect to new WiFi network SSID: border0" >> $GITHUB_OUTPUT
-          echo "5. open browser and go to http://gateway.border0" >> $GITHUB_OUTPUT
-          echo "6. login with your border0 account" >> $GITHUB_OUTPUT
+          echo "5. Open browser and go to http://gateway.border0" >> $GITHUB_OUTPUT
+          echo "6. Login with your border0 account" >> $GITHUB_OUTPUT
           echo "### Requirements" >> $GITHUB_OUTPUT
           echo "- Raspberry Pi 3/4/5 (64-bit)" >> $GITHUB_OUTPUT
           echo "- SD card (8GB+ recommended)" >> $GITHUB_OUTPUT
