@@ -14,6 +14,7 @@
         {% endwith %}
         {% if not login_url and not token_exists %}
         <form method="post">
+          {{ csrf_token() }}
           {% if locked %}
           <div class="mb-3">
             <label class="form-label">Organization</label>
@@ -85,7 +86,8 @@
           <p class="mb-1"><strong>Org Name:</strong> {{ user_info.org_name }}</p>
           <p class="mb-1"><strong>Org ID:</strong> {{ user_info.org_id }}</p>
           <p class="mb-1"><strong>Org Subdomain:</strong> {{ user_info.org_subdomain }}</p>
-          <form method="post">
+        <form method="post">
+          {{ csrf_token() }}
             <button type="submit" class="btn btn-primary w-100 mt-3">Login to Border0</button>
           </form>
         </div>

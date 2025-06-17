@@ -14,6 +14,7 @@
       {% endif %}
     {% endwith %}
     <form method="post" action="{{ url_for('wan.index') }}">
+      {{ csrf_token() }}
   <div class="mb-3">
     <label for="iface-select" class="form-label">Select WAN Interface</label>
     <select id="iface-select" name="iface" class="form-select" required>

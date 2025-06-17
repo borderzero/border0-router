@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 StartLimitInterval=10
 StartLimitBurst=10
-ExecStart=/opt/border0/webui/venv/bin/python3 /opt/border0/webui/webui.py
+ExecStart=/opt/border0/webui/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:80 --factory gateway_admin.app:create_app
 
 WorkingDirectory=/opt/border0/webui
 

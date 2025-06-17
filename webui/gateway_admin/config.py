@@ -36,6 +36,7 @@ def _ensure_secret_key():
             os.makedirs(os.path.dirname(_ENV_FILE), exist_ok=True)
             with open(_ENV_FILE, 'w') as f:
                 f.write(f'SECRET_KEY="{key}"\n')
+            os.chmod(_ENV_FILE, 0o600)
         except Exception:
             pass
     # Export for Flask

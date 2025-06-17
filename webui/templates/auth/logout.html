@@ -15,9 +15,11 @@
           <p><strong>Token expires at:</strong> {{ token_info.exp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
           <p class="text-warning mt-3">Logging out here will delete the token file and require you to re-login.</p>
           <form method="post" class="d-inline-block">
+            {{ csrf_token() }}
             <button type="submit" name="action" value="force" class="btn btn-danger">Force Logout</button>
           </form>
           <form method="post" class="d-inline-block ms-2">
+            {{ csrf_token() }}
             <button type="submit" name="action" value="cancel" class="btn btn-secondary">Cancel</button>
           </form>
         {% endif %}

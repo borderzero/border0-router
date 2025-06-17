@@ -72,18 +72,20 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 1. Insert the SD card into your Raspberry Pi and power it on.
 2. The device will provision services (hostapd, dnsmasq, Border0 CLI, Web UI) and reboot.
 3. Connect a client to the `border0` Wi-Fi SSID.
-4. In your browser, navigate to **http://10.10.10.10:5000** or follow the captive portal.
-5. Log in with default credentials:
-   - **Username**: `admin`
-   - **Password**: `password`
-6. Configure network interfaces, Border0 VPN, view metrics, reboot, upgrade, or factory reset via the Web UI.
+4. In your browser, navigate to **http://gateway.border0**(http://10.10.10.10) or follow the captive portal.
+5. Log in with your SSO credentials straight into your Border0 organization.
+6. Configure your Wi-Fi password, select border0 [exit-node](https://docs.border0.com/docs/exit-node), view metrics, reboot, upgrade and more...
 
 ## Web UI Development
-```bash
+-```bash
 cd webui
 ./setup.sh        # create venv, install Python deps
 source venv/bin/activate
-./run.sh          # launch dev server
+./run.sh          # launch development server
+
+# For production deployment, install and use Gunicorn:
+pip install gunicorn
+gunicorn --workers 3 --bind 0.0.0.0:80 --factory gateway_admin.app:create_app
 ```
 - Access at `http://localhost:5000`
 - Python code under `webui/gateway_admin/`, static templates under `webui/static/`.

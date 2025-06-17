@@ -109,3 +109,5 @@ jobs:
           asset_path: ${{ steps.rename_image.outputs.path }}
           asset_name: ${{ steps.rename_image.outputs.name }}
           asset_content_type: application/octet-stream
+
+#EOF
