@@ -35,7 +35,7 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 
 ### Raspberry Pi (target device)
 - Raspberry Pi 3/4/CM4 or newer
-- microSD card (≥ 16 GB), power supply
+- microSD card (≥ 8 GB), power supply
 - Ethernet or Wi-Fi client device for connecting to Admin Panel
 
 ## Quick Start
@@ -72,11 +72,9 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 1. Insert the SD card into your Raspberry Pi and power it on.
 2. The device will provision services (hostapd, dnsmasq, Border0 CLI, Web UI) and reboot.
 3. Connect a client to the `border0` Wi-Fi SSID.
-4. In your browser, navigate to **http://10.10.10.10:5000** or follow the captive portal.
-5. Log in with default credentials:
-   - **Username**: `admin`
-   - **Password**: `password`
-6. Configure network interfaces, Border0 VPN, view metrics, reboot, upgrade, or factory reset via the Web UI.
+4. In your browser, navigate to **http://gateway.border0** or **http://10.10.10.10** or follow the captive portal.
+5. Log in with your Border0 Account credentials.
+6. Configure network interfaces, Border0 VPN(exit-node), view metrics, reboot, upgrade.
 
 ## Web UI Development
 ```bash
