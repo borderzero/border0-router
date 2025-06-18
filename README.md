@@ -39,6 +39,7 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 - Ethernet or Wi-Fi client device for connecting to Admin Panel
 
 ## Quick Start
+[Click here to watch the installation guide](https://youtu.be/W6hoqRWbjvo)
 [![Watch the video](https://img.youtube.com/vi/W6hoqRWbjvo/maxresdefault.jpg)](https://youtu.be/W6hoqRWbjvo)
 
 ## First Boot & Access
