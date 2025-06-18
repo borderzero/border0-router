@@ -41,6 +41,15 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 ## Quick Start
 [![Watch the video](https://img.youtube.com/vi/W6hoqRWbjvo/maxresdefault.jpg)](https://youtu.be/W6hoqRWbjvo)
 
+## First Boot & Access
+1. Insert the SD card into your Raspberry Pi and power it on.
+2. The device will provision services (hostapd, dnsmasq, Border0 CLI, Web UI) and reboot.
+3. Connect a client to the `border0` Wi-Fi SSID.
+4. In your browser, navigate to **http://gateway.border0** or **http://10.10.10.10** or follow the captive portal.
+5. Log in with your Border0 Account credentials.
+6. Configure network interfaces, Border0 VPN(exit-node), view metrics, reboot, upgrade.
+
+## Build the Image and Develop locally
 1. Clone the repo:
    ```bash
    git clone https://github.com/borderzero/border0-router.git
@@ -68,13 +77,6 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
    sudo dd if=$(ls iso/*-border0-*.img | head -1) of=/dev/sdX bs=4M conv=fsync status=progress
    ```</small>
 
-## First Boot & Access
-1. Insert the SD card into your Raspberry Pi and power it on.
-2. The device will provision services (hostapd, dnsmasq, Border0 CLI, Web UI) and reboot.
-3. Connect a client to the `border0` Wi-Fi SSID.
-4. In your browser, navigate to **http://gateway.border0** or **http://10.10.10.10** or follow the captive portal.
-5. Log in with your Border0 Account credentials.
-6. Configure network interfaces, Border0 VPN(exit-node), view metrics, reboot, upgrade.
 
 ## Web UI Development
 ```bash
