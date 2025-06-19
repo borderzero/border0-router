@@ -23,6 +23,13 @@ pending_lock = threading.Lock()
 LOGIN_FLOW_TTL = 300  # seconds to keep pending login flows before cleanup
 
 auth_bp = Blueprint('auth', __name__)
+# Utility function to delete token file with logging
+def delete_token_file(token_path):
+    try:
+        os.remove(token_path)
+        current_app.logger.info(f"Removed token file: {token_path}")
+    except Exception as e:
+        current_app.logger.info(f"Failed to remove token file {token_path}: {e}")
 
 @auth_bp.before_app_request
 def enforce_single_session():
@@ -325,7 +332,7 @@ def login_callback():
                     with open(meta_path, 'w') as mf:
                         json.dump(meta, mf)
                     try:
-                        os.remove(token_file)
+                        delete_token_file(token_file)
                     except Exception:
                         pass
                 except Exception:
@@ -374,7 +381,7 @@ def logout():
     logout_user()
     session['skip_token'] = True
     try:
-        os.remove(token_file)
+        delete_token_file(token_file)
     except Exception:
         pass
     try:
