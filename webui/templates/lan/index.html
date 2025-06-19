@@ -3,13 +3,6 @@
 <h1>LAN Configuration</h1>
 <div class="row mb-4">
   <div class="col-md-6">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
     <form id="lan-form" method="post" action="{{ url_for('lan.index') }}">
       <div class="mb-3">
         <label for="iface-select" class="form-label">Select LAN Interface</label>
