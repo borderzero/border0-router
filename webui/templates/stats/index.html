@@ -43,7 +43,7 @@
   <div class="col-md-6">
     <div class="card mb-4">
       <div class="card-body">
-        <h5>Network Throughput (bytes/sec)</h5>
+        <h5>Network Throughput (bits/sec)</h5>
         <canvas id="netChart"></canvas>
       </div>
     </div>
@@ -78,8 +78,8 @@ document.addEventListener('DOMContentLoaded', function() {
   charts.net = new Chart(document.getElementById('netChart').getContext('2d'), {
     type: 'line', data: {
       labels: [], datasets: [
-        { label: 'Bytes Sent/s', data: [], borderColor: 'rgba(153, 102, 255, 1)', fill: false },
-        { label: 'Bytes Recv/s', data: [], borderColor: 'rgba(255, 99, 132, 1)', fill: false }
+        { label: 'Bits Sent/s', data: [], borderColor: 'rgba(153, 102, 255, 1)', fill: false },
+        { label: 'Bits Recv/s', data: [], borderColor: 'rgba(255, 99, 132, 1)', fill: false }
       ]
     }, options: { scales: { x: { type: 'category' }, y: { beginAtZero: true } } }
   });
@@ -114,8 +114,8 @@ document.addEventListener('DOMContentLoaded', function() {
         pushData(charts.cpu, data.cpu);
         pushData(charts.mem, data.memory);
         pushData(charts.disk, data.disk);
-        pushData(charts.net, data.net_sent, 0);
-        pushData(charts.net, data.net_recv, 1);
+        pushData(charts.net, data.net_sent * 8, 0);
+        pushData(charts.net, data.net_recv * 8, 1);
       })
       .catch(err => console.error('Error fetching stats:', err));
   }
@@ -134,8 +134,8 @@ document.addEventListener('DOMContentLoaded', function() {
           charts.disk.data.labels.push(label);
           charts.disk.data.datasets[0].data.push(data.disk);
           charts.net.data.labels.push(label);
-          charts.net.data.datasets[0].data.push(data.net_sent);
-          charts.net.data.datasets[1].data.push(data.net_recv);
+          charts.net.data.datasets[0].data.push(data.net_sent * 8);
+          charts.net.data.datasets[1].data.push(data.net_recv * 8);
         });
         charts.cpu.update(); charts.mem.update(); charts.disk.update(); charts.net.update();
       })
