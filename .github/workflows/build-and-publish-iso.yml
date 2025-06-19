@@ -82,7 +82,7 @@ jobs:
           echo "5. open browser and go to http://gateway.border0" >> $GITHUB_OUTPUT
           echo "6. login with your border0 account" >> $GITHUB_OUTPUT
           echo "### Requirements" >> $GITHUB_OUTPUT
-          echo "- Raspberry Pi 3/4/5 (64-bit)" >> $GITHUB_OUTPUT
+          echo "- Raspberry Pi 3B+ (64-bit) or newer" >> $GITHUB_OUTPUT
           echo "- SD card (8GB+ recommended)" >> $GITHUB_OUTPUT
           echo "" >> $GITHUB_OUTPUT
           echo "[Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)" >> $GITHUB_OUTPUT

@@ -34,7 +34,7 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
   - On Ubuntu (snap): `sudo snap install rpi-imager`
 
 ### Raspberry Pi (target device)
-- Raspberry Pi 3/4/CM4 or newer
+- Raspberry Pi 3B+ or newer
 - microSD card (≥ 8 GB), power supply
 - Ethernet or Wi-Fi client device for connecting to Admin Panel
 
