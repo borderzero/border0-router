@@ -24,20 +24,25 @@ LOGIN_FLOW_TTL = 300  # seconds to keep pending login flows before cleanup
 
 auth_bp = Blueprint('auth', __name__)
 def delete_token_file(token_path):
-    breadcrumb_path = '/etc/border0/first_login_done'
-    delay = 20 if not os.path.exists(breadcrumb_path) else 5
-    try:
-        current_app.logger.info(
-            f"Waiting {delay}s before removing token file (breadcrumb exists: {os.path.exists(breadcrumb_path)})"
-        )
-    except Exception:
-        pass
-    time.sleep(delay)
-    try:
-        os.remove(token_path)
-        current_app.logger.info(f"Removed token file: {token_path}")
-    except Exception as e:
-        current_app.logger.info(f"Failed to remove token file {token_path}: {e}")
+    def _delete_with_delay():
+        breadcrumb_path = '/etc/border0/first_login_done'
+        delay = 30 if not os.path.exists(breadcrumb_path) else 10
+        try:
+            current_app.logger.info(
+                f"Waiting {delay}s before removing token file (breadcrumb exists: {os.path.exists(breadcrumb_path)})"
+            )
+        except Exception:
+            pass
+        time.sleep(delay)
+        try:
+            os.remove(token_path)
+            current_app.logger.info(f"Removed token file: {token_path}")
+        except Exception as e:
+            current_app.logger.info(f"Failed to remove token file {token_path}: {e}")
+    
+    # Run deletion in background thread
+    thread = threading.Thread(target=_delete_with_delay, daemon=True)
+    thread.start()
 
 @auth_bp.before_app_request
 def enforce_single_session():
