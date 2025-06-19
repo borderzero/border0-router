@@ -315,6 +315,18 @@ echo "eth0" > "${MNT_ROOT}/etc/border0/wan_interface"
 echo "lan_interface: $(cat "${MNT_ROOT}/etc/border0/lan_interface")"
 echo "wan_interface: $(cat "${MNT_ROOT}/etc/border0/wan_interface")"
 
+# if INSTALL_LOCAL_SSH_KEY is true install ssh key from ~/.ssh/id_ed25519.pub into authorized_keys
+if [ "${INSTALL_LOCAL_SSH_KEY:-false}" = "true" ]; then
+    echo "Installing ssh key from ~/.ssh/id_ed25519.pub into authorized_keys"
+    mkdir -p "${MNT_ROOT}/root/.ssh"
+    if [ -f ~/.ssh/id_ed25519.pub ]; then
+        cat ~/.ssh/id_ed25519.pub >> "${MNT_ROOT}/root/.ssh/authorized_keys"
+    elif [ -f ~/.ssh/id_rsa.pub ]; then 
+        cat ~/.ssh/id_rsa.pub >> "${MNT_ROOT}/root/.ssh/authorized_keys"
+    else
+        echo "Error: ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub not found"
+    fi
+fi
 
 # 8. Cleanup: Unmount pseudo-filesystems, the qemu bind mount, and partitions.
 echo "Cleaning up chroot environment..."

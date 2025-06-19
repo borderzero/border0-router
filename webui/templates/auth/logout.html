@@ -12,8 +12,9 @@
           <p>You are currently logged in as <strong>{{ token_info.user_email }}</strong>.</p>
           <p><strong>Org Subdomain:</strong> {{ token_info.org_subdomain }}</p>
           <p><strong>Org ID:</strong> {{ token_info.org_id }}</p>
-          <p><strong>Token expires at:</strong> {{ token_info.exp.strftime('%Y-%m-%d %H:%M:%S') }}</p>
-          <p class="text-warning mt-3">Logging out here will delete the token file and require you to re-login.</p>
+          <!-- <p><strong>Token expires at:</strong> {{ token_info.exp.strftime('%Y-%m-%d %H:%M:%S') }}</p> -->
+          <p class="text-warning mt-3">Logging out here will require you to re-login with SSO</p>
+          <p><strong>Your Pi will remain attached to your Border0 org</strong></p>
           <form method="post" class="d-inline-block">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" name="action" value="force" class="btn btn-danger">Force Logout</button>

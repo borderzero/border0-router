@@ -7,6 +7,7 @@
         <h2 class="card-title mb-4">Reboot System</h2>
         <p>System uptime: <strong>{{ uptime }}</strong></p>
         <form method="post" action="{{ url_for('auth.reboot') }}" onsubmit="return confirm('Are you sure you want to reboot the system?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-danger mt-3">Reboot</button>
         </form>
       </div>

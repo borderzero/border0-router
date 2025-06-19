@@ -30,6 +30,7 @@
               <td><span class="fw-bold {{ 'text-success' if iface.service_active else 'text-danger' }}">{{ 'Active' if iface.service_active else 'Inactive' }}</span></td>
               <td>
                 <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   {% if iface.service_enabled %}
                     <button type="submit" name="action" value="disable" class="btn btn-warning btn-sm" formnovalidate>Disable</button>
                   {% else %}
@@ -60,6 +61,7 @@
           <div class="card-header">Configuration</div>
           <div class="card-body">
             <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <div class="mb-3">
                 <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
                 <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid" value="{{ iface.ssid }}" required maxlength="32">

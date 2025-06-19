@@ -23,8 +23,16 @@ pending_lock = threading.Lock()
 LOGIN_FLOW_TTL = 300  # seconds to keep pending login flows before cleanup
 
 auth_bp = Blueprint('auth', __name__)
-# Utility function to delete token file with logging
 def delete_token_file(token_path):
+    breadcrumb_path = '/etc/border0/first_login_done'
+    delay = 20 if not os.path.exists(breadcrumb_path) else 5
+    try:
+        current_app.logger.info(
+            f"Waiting {delay}s before removing token file (breadcrumb exists: {os.path.exists(breadcrumb_path)})"
+        )
+    except Exception:
+        pass
+    time.sleep(delay)
     try:
         os.remove(token_path)
         current_app.logger.info(f"Removed token file: {token_path}")
@@ -335,6 +343,19 @@ def login_callback():
                         delete_token_file(token_file)
                     except Exception:
                         pass
+                    breadcrumb_path = '/etc/border0/first_login_done'
+                    try:
+                        if not os.path.exists(breadcrumb_path):
+                            os.makedirs(os.path.dirname(breadcrumb_path), exist_ok=True)
+                            with open(breadcrumb_path, 'w') as bf:
+                                bf.write('')
+                            current_app.logger.info(
+                                f"Created first login breadcrumb file: {breadcrumb_path}"
+                            )
+                    except Exception as e:
+                        current_app.logger.info(
+                            f"Failed to create breadcrumb file {breadcrumb_path}: {e}"
+                        )
                 except Exception:
                     pass
                 return response

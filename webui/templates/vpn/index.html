@@ -9,6 +9,7 @@
       <div class="card-body">
         {% if not org %}
         <form method="post" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="col-md-8">
             <label for="org" class="form-label">Organization Name</label>
             <input type="text" class="form-control" id="org" name="org" value="{{ org }}" required maxlength="30"
@@ -94,7 +95,8 @@
             &nbsp;/&nbsp;
             <span class="fw-bold {{ 'text-success' if service_active else 'text-danger' }}">{{ 'Active' if service_active else 'Inactive' }}</span>
           </div>
-          <form method="post" class="mt-3">
+        <form method="post" class="mt-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" name="action" value="install_vpn" class="btn btn-primary">Restart device service</button>
           </form>
         </div>
@@ -117,6 +119,7 @@
         <div class="alert alert-danger">Error fetching exit nodes: {{ exitnode_error }}</div>
       {% endif %}
       <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="mb-3">
           <label for="exit_node" class="form-label">Select Exit Node</label>
           <select class="form-select" id="exit_node" name="exit_node">
