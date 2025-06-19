@@ -18,14 +18,26 @@ wan_bp = Blueprint('wan', __name__, url_prefix='/wan')
 @wan_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
-    # Discover WAN interfaces: only ethX or wlanX
+    # Discover WAN interfaces: only ethX or wlanX, excluding selected LAN interface
     net_dir = '/sys/class/net'
     interfaces = []
+    # Read current LAN interface to exclude it from WAN options
+    lan_iface_path = current_app.config.get('LAN_IFACE_PATH')
+    lan_iface_to_exclude = None
+    try:
+        with open(lan_iface_path) as f:
+            lan_iface_to_exclude = f.read().strip()
+    except Exception:
+        lan_iface_to_exclude = None
     if os.path.isdir(net_dir):
         for iface in sorted(os.listdir(net_dir)):
             # only physical ethernet or wlan
-            if re.match(r'^(eth|wlan)\d+$', iface):
-                interfaces.append(iface)
+            if not re.match(r'^(eth|wlan)\d+$', iface):
+                continue
+            # skip LAN interface
+            if iface == lan_iface_to_exclude:
+                continue
+            interfaces.append(iface)
 
     # Load current WAN interface selection
     current_iface = None
