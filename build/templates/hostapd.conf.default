@@ -2,8 +2,29 @@ interface=wlan0
 driver=nl80211
 
 ssid=border0
-hw_mode=g
-channel=6
+hw_mode=a
+channel=36
 country_code=CA
 
 wpa=0
+macaddr_acl=0
+
+logger_syslog=0
+logger_syslog_level=4
+logger_stdout=-1
+logger_stdout_level=0
+
+wmm_enabled=1
+
+# N
+ieee80211n=1
+#require_ht=1
+ht_capab=[MAX-AMSDU-3839][HT40+][SHORT-GI-20][SHORT-GI-40][DSSS_CCK-40]
+
+# AC
+ieee80211ac=1
+require_vht=1
+ieee80211d=0
+ieee80211h=0
+vht_capab=[MAX-AMSDU-3839][SHORT-GI-80]
+vht_oper_chwidth=1
