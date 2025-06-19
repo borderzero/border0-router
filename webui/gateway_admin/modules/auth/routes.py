@@ -4,6 +4,7 @@ from ...config import Config
 import os
 import re
 import json
+import uuid
 import glob
 import shutil
 import subprocess
@@ -16,7 +17,35 @@ import datetime
 import urllib.request
 from ...extensions import login_manager
 
+# map login_id to Border0 CLI subprocess for ongoing login flows
+pending_logins = {}
+pending_lock = threading.Lock()
+LOGIN_FLOW_TTL = 300  # seconds to keep pending login flows before cleanup
+
 auth_bp = Blueprint('auth', __name__)
+
+@auth_bp.before_app_request
+def enforce_single_session():
+    # Invalidate sessions when a new login (token refresh) occurs elsewhere
+    if current_user.is_authenticated:
+        meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+        if meta_file and os.path.isfile(meta_file):
+            try:
+                data = json.loads(open(meta_file).read())
+                # Expire if token was refreshed elsewhere
+                server_iat = data.get('iat')
+                if server_iat and session.get('token_iat') != server_iat:
+                    logout_user()
+                    flash('Your session has expired due to login on another device.', 'warning')
+                    return redirect(url_for('auth.login'))
+                # Enforce per-device binding via cookie
+                device_cookie = request.cookies.get('device_id')
+                if data.get('device_id') != device_cookie:
+                    logout_user()
+                    flash('Please log in on this device.', 'warning')
+                    return redirect(url_for('auth.login'))
+            except Exception:
+                pass
 
 class User(UserMixin):
     def __init__(self, id):
@@ -30,6 +59,8 @@ def load_user(user_id):
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
+    # assign or preserve a unique login_id for this login flow
+    login_id = request.values.get('login_id') or uuid.uuid4().hex
 
     # Determine if organization is locked via existing org file
     org_file = current_app.config.get('BORDER0_ORG_PATH')
@@ -50,13 +81,16 @@ def login():
     login_url = None
 
     if request.method == 'POST':
+        skip_token = session.pop('skip_token', False)
         # For locked org, always use saved subdomain; else read from form
         if locked:
             org = org_saved
         else:
             org = request.form.get('org')
-        token_exists = os.path.isfile(token_file)
-        if not token_exists:
+        # only allow "continue as" auto-login if user just completed SSO
+        can_continue = session.pop('authenticated_via_SSO', False)
+        token_present = os.path.isfile(token_file) and not skip_token
+        if not token_present or not can_continue:
             if not org:
                 flash('Please enter an organization name to log into.', 'danger')
             else:
@@ -82,6 +116,8 @@ def login():
                         preexec_fn=os.setsid,
                         env=env
                     )
+                    with pending_lock:
+                        pending_logins[login_id] = {'proc': proc, 'start': time.time()}
                     # collect initial CLI output lines
                     log_lines = []
 
@@ -174,18 +210,18 @@ def login():
                     if user_id:
                         user = User(user_id)
                         login_user(user)
-                        # mark session as permanent to respect configured lifetime
+                        # mark session as permanent and record the token iat & SSO auth flag
                         session.permanent = True
-                        # on first successful login, store org ID and subdomain
+                        if isinstance(payload.get('iat'), (int, str)):
+                            session['token_iat'] = payload.get('iat')
+                        session['authenticated_via_SSO'] = True
+                        # persist org_id/subdomain and token metadata for UI display
                         org_path = current_app.config.get('BORDER0_ORG_PATH')
                         try:
                             os.makedirs(os.path.dirname(org_path), exist_ok=True)
                             if payload.get('org_id') and payload.get('org_subdomain') and not os.path.isfile(org_path):
                                 with open(org_path, 'w') as f:
-                                    json.dump({
-                                        'org_subdomain': payload.get('org_subdomain'),
-                                        'org_id': payload.get('org_id')
-                                    }, f)
+                                    json.dump({'org_subdomain': payload.get('org_subdomain'), 'org_id': payload.get('org_id')}, f)
                         except Exception:
                             pass
                         meta_path = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
@@ -199,49 +235,152 @@ def login():
             except Exception as e:
                 flash(f'Failed to authenticate: {e}', 'danger')
 
-    token_exists = os.path.isfile(token_file)
-    # load any stored token metadata for display; fall back to decoding live token
-    user_info = None
-    meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
-    if meta_file and os.path.isfile(meta_file):
-        try:
-            user_info = json.loads(open(meta_file).read())
-        except Exception:
-            user_info = None
-    elif token_exists:
-        try:
-            token_str = open(token_file).read().strip()
-            parts = token_str.split('.')
-            if len(parts) >= 2:
-                padding = '=' * (-len(parts[1]) % 4)
-                user_info = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
-        except Exception:
-            user_info = None
-
-
-    return render_template('auth/login.html',
-                           org=org,
-                           login_url=login_url,
-                           token_exists=token_exists,
-                           user_info=user_info,
-                           locked=locked)
+    # Always require a fresh SSO flow on this device/browser
+    return render_template(
+        'auth/login.html',
+        org=org,
+        login_url=login_url,
+        token_exists=False,
+        user_info=None,
+        locked=locked,
+        login_id=login_id
+    )
 
 @auth_bp.route('/login/status', methods=['GET'])
 def login_status():
+    login_id = request.args.get('login_id')
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
-    return jsonify({'token_exists': os.path.isfile(token_file)})
+    authenticated = os.path.isfile(token_file)
+    error = None
+    now = time.time()
+    with pending_lock:
+        for lid, entry in list(pending_logins.items()):
+            if now - entry['start'] > LOGIN_FLOW_TTL:
+                try:
+                    os.killpg(entry['proc'].pid, signal.SIGTERM)
+                except Exception:
+                    pass
+                pending_logins.pop(lid, None)
+        entry = pending_logins.get(login_id)
+    proc = entry['proc'] if entry else None
+    if not authenticated and proc is not None:
+        code = proc.poll()
+        if code is not None and code != 0:
+            error = f'Authentication process exited with code {code}'
+            with pending_lock:
+                pending_logins.pop(login_id, None)
+    return jsonify({'authenticated': authenticated, 'error': error})
+
+@auth_bp.route('/login/callback')
+def login_callback():
+    login_id = request.args.get('login_id')
+    with pending_lock:
+        entry = pending_logins.pop(login_id, None)
+    proc = entry['proc'] if entry else None
+    if not proc:
+        flash('Invalid or expired login flow. Please log in again.', 'danger')
+        return redirect(url_for('auth.login'))
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    try:
+        token_str = open(token_file).read().strip()
+        parts = token_str.split('.')
+        if len(parts) >= 2:
+            padding = '=' * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+            user_id = payload.get('user_email') or payload.get('sub')
+            if user_id:
+                user = User(user_id)
+                login_user(user)
+                session.permanent = True
+                if isinstance(payload.get('iat'), (int, str)):
+                    session['token_iat'] = payload.get('iat')
+                session['authenticated_via_SSO'] = True
+                # Generate and bind a per-device ID
+                device_id = uuid.uuid4().hex
+                response = redirect(request.args.get('next') or url_for('home.index'))
+                response.set_cookie('device_id', device_id, httponly=True, samesite='Lax')
+
+                org_path = current_app.config.get('BORDER0_ORG_PATH')
+                try:
+                    os.makedirs(os.path.dirname(org_path), exist_ok=True)
+                    if payload.get('org_id') and payload.get('org_subdomain') and not os.path.isfile(org_path):
+                        with open(org_path, 'w') as f:
+                            json.dump({'org_subdomain': payload.get('org_subdomain'), 'org_id': payload.get('org_id')}, f)
+                except Exception:
+                    pass
+                meta_path = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+                try:
+                    os.makedirs(os.path.dirname(meta_path), exist_ok=True)
+                    meta = payload.copy()
+                    meta['device_id'] = device_id
+                    with open(meta_path, 'w') as mf:
+                        json.dump(meta, mf)
+                    try:
+                        os.remove(token_file)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+                return response
+    except Exception as e:
+        flash(f'Failed to authenticate: {e}', 'danger')
+    return redirect(url_for('auth.login'))
 @auth_bp.route('/switch_user', methods=['POST'])
+@login_required
 def switch_user():
-    # Log out the current UI user; retain client token for VPN
+    # Clear UI session and skip using existing token for this session
     logout_user()
+    session['skip_token'] = True
     flash('Please log in as a different user.', 'info')
     return redirect(url_for('auth.login'))
     
 @auth_bp.route('/logout', methods=['GET', 'POST'])
+@login_required
 def logout():
-    # Clear UI session; keep CLI token intact
+    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
+    token_exists = os.path.isfile(meta_file)
+    token_info = None
+    if token_exists:
+        try:
+            with open(meta_file) as mf:
+                payload = json.load(mf)
+            exp_ts = payload.get('exp')
+            exp = None
+            if isinstance(exp_ts, (int, float)):
+                exp = datetime.datetime.fromtimestamp(exp_ts)
+            token_info = type('TokenInfo', (), {
+                'user_email': payload.get('user_email'),
+                'org_subdomain': payload.get('org_subdomain'),
+                'org_id': payload.get('org_id'),
+                'exp': exp
+            })
+        except Exception:
+            token_info = None
+    if request.method == 'GET':
+        return render_template('auth/logout.html', token_exists=token_exists, token_info=token_info)
+    action = request.form.get('action')
+    if action == 'cancel':
+        return redirect(url_for('home.index'))
     logout_user()
     session['skip_token'] = True
+    try:
+        os.remove(token_file)
+    except Exception:
+        pass
+    try:
+        os.remove(meta_file)
+    except Exception:
+        pass
     flash('You have been logged out.', 'info')
     return redirect(url_for('auth.login'))
 

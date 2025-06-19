@@ -333,9 +333,16 @@ def index():
 
     # Determine token existence (may be used for showing upload form)
     token_exists = os.path.isfile(token_file)
-    # Decode client token to extract user information (name, nickname, picture, org_id, etc.)
+    # Load user information: prefer cached metadata, else decode token
     user_info = None
-    if token_exists:
+    metadata_path = Config.BORDER0_TOKEN_METADATA_PATH
+    if os.path.isfile(metadata_path):
+        try:
+            with open(metadata_path) as mf:
+                user_info = json.load(mf)
+        except Exception:
+            user_info = None
+    elif token_exists:
         try:
             token_str = open(token_file).read().strip()
             parts = token_str.split('.')

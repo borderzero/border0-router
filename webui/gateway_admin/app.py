@@ -2,6 +2,7 @@ import os
 from flask import Flask
 from .config import Config
 from .extensions import login_manager
+from flask_wtf import CSRFProtect
 from jinja2 import ChoiceLoader, FileSystemLoader
 
 # Import blueprints
@@ -27,6 +28,7 @@ def create_app():
     ])
 
     login_manager.init_app(app)
+    CSRFProtect(app)
     # Serve Border0 client assets (fonts, icons)
     from flask import send_from_directory
     assets_folder = os.path.join(static_dir, 'border0', 'assets')
