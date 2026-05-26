@@ -3,7 +3,12 @@
 # - Exit immediately if a command exits with a non-zero status (-e)
 # - Treat unset variables as an error when substituting (-u)
 # - Prevent errors in a pipeline from being masked (-o pipefail)
-# set -euo pipefail
+set -euo pipefail
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Error: this script must be run as root (try: sudo $0)" >&2
+    exit 1
+fi
 
 # timestamp
 TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
@@ -34,8 +39,8 @@ DEFAULT_LAN_IFACE="${DEFAULT_LAN_IFACE:-wlan0}"
 DEFAULT_WAN_IFACE="${DEFAULT_WAN_IFACE:-eth0}"
 # ==================================
 
-# Mount point directories
-MNT_ROOT="/mnt/rpi/root"
+# Mount point directories (fresh temp dir each run; cleaned up on exit)
+MNT_ROOT=$(mktemp -d -t border0-iso-XXXXXX)
 MNT_BOOT="${MNT_ROOT}/boot"
 
 # 0. Check for qemu-aarch64-static on the host.
@@ -49,17 +54,30 @@ if [ ! -f "/usr/bin/qemu-aarch64-static" ]; then
     fi
 fi
 
-# 1. Decompress the image if not already decompressed.
+# 1. Decompress the image if not already decompressed, and grow the rootfs.
+# Pi OS Lite p2 ships with ~200MB free — not enough headroom for apt update
+# plus the EXTRA_PKGS install. Add 4GB and extend p2 to fill it.
+GROW_IMG_BY="${GROW_IMG_BY:-4G}"
 if [ ! -f "${IMG}" ]; then
     echo "Decompressing ${IMG_XZ}..."
     xz -d -k "${IMG_XZ}"
+
+    echo "Growing image by ${GROW_IMG_BY} and extending root partition..."
+    truncate -s "+${GROW_IMG_BY}" "${IMG}"
+    LOOP_DEV=$(losetup --find --partscan --show "${IMG}")
+    echo ', +' | sfdisk -N 2 "${LOOP_DEV}"
+    losetup -c "${LOOP_DEV}"
+    e2fsck -fy "${LOOP_DEV}p2"
+    resize2fs "${LOOP_DEV}p2"
+    losetup -d "${LOOP_DEV}"
+    LOOP_DEV=""
 fi
 
 # 2. Setup a loop device with partition scanning.
 LOOP_DEV=$(losetup --find --partscan --show "${IMG}")
 if [ -z "${LOOP_DEV}" ]; then
     echo "Error: Unable to setup loop device."
-    # exit 1
+    exit 1
 fi
 echo "Using loop device: ${LOOP_DEV}"
 
@@ -69,9 +87,23 @@ echo "Using loop device: ${LOOP_DEV}"
 BOOT_PART="${LOOP_DEV}p1"
 ROOT_PART="${LOOP_DEV}p2"
 
-# 3. Create mount directories and mount partitions.
-mkdir -p "${MNT_ROOT}"
-mkdir -p "${MNT_BOOT}"
+# 3. Mount partitions. (MNT_ROOT already exists from mktemp; MNT_BOOT is /boot
+# inside the rootfs, which exists once the root partition is mounted.)
+
+# Ensure we tear mounts down, detach the loop device, and remove the temp dir
+# on any failure or normal exit.
+cleanup() {
+    set +e
+    umount "${MNT_ROOT}/dev/pts" 2>/dev/null
+    umount "${MNT_ROOT}/proc"    2>/dev/null
+    umount "${MNT_ROOT}/sys"     2>/dev/null
+    umount "${MNT_ROOT}/dev"     2>/dev/null
+    umount "${MNT_BOOT}"         2>/dev/null
+    umount "${MNT_ROOT}"         2>/dev/null
+    [ -n "${LOOP_DEV:-}" ] && losetup -d "${LOOP_DEV}" 2>/dev/null
+    rmdir "${MNT_ROOT}" 2>/dev/null
+}
+trap cleanup EXIT
 
 echo "Mounting root filesystem (${ROOT_PART}) to ${MNT_ROOT}..."
 mount "${ROOT_PART}" "${MNT_ROOT}"
@@ -84,6 +116,9 @@ echo "Mounting pseudo-filesystems..."
 mount -t proc /proc "${MNT_ROOT}/proc"
 mount -t sysfs /sys "${MNT_ROOT}/sys"
 mount --bind /dev "${MNT_ROOT}/dev"
+# /dev/pts is a separate mount on the host; --bind /dev doesn't pull it in.
+# Without this, apt complains: "Can not write log (Is /dev/pts mounted?)".
+mount --bind /dev/pts "${MNT_ROOT}/dev/pts"
 # Copy DNS resolution settings for networking in chroot.
 cp -v /etc/resolv.conf "${MNT_ROOT}/etc/resolv.conf"
 echo "nameserver 8.8.8.8" >> "${MNT_ROOT}/etc/resolv.conf"
@@ -229,8 +264,12 @@ rm -rf /usr/share/info/*
 
 
 # enable forwarding
-echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-echo "net.ipv6.conf.all.forwarding=1" >> /etc/sysctl.conf
+# systemd 257 (Debian 13) no longer reads /etc/sysctl.conf — only files
+# under /etc/sysctl.d/, /run/sysctl.d/, /usr/lib/sysctl.d/. Write a drop-in.
+cat > /etc/sysctl.d/99-border0.conf <<'SYSCTL_EOF'
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+SYSCTL_EOF
 
 
 echo "Copying authorized_keys into the image..."
@@ -247,6 +286,8 @@ cd /opt/border0/webui
 ./setup.sh
 
 echo "Copy all files to /opt/border0/defaults for factory reset restoration"
+mkdir -p /opt/border0/defaults/etc/network/interfaces.d
+mkdir -p /opt/border0/defaults/etc/hostapd
 cp -rv /etc/network/interfaces.d/dummy0.conf /opt/border0/defaults/etc/network/interfaces.d/dummy0.conf
 cp -rv /etc/network/interfaces.d/wlan0.conf /opt/border0/defaults/etc/network/interfaces.d/wlan0.conf
 cp -rv /etc/network/interfaces.d/eth0.conf /opt/border0/defaults/etc/network/interfaces.d/eth0.conf
@@ -268,40 +309,38 @@ sed -i "s|echo \"eth0\".*|echo \"${DEFAULT_WAN_IFACE}\" > /etc/border0/wan_inter
 chmod +x "${CHROOT_SCRIPT}"
 
 # 6. Chroot into the image (using QEMU via the bind mount) and run the modification script.
+# Force C locale: Pi OS Lite only ships C/C.UTF-8, so inheriting LANG=en_US.UTF-8
+# from the host produces perl/apt-listchanges warning spam on every package op.
 echo "Entering chroot to modify the image..."
-chroot "${MNT_ROOT}" /bin/bash /tmp/chroot_mod.sh
+LANG=C LC_ALL=C chroot "${MNT_ROOT}" /bin/bash /tmp/chroot_mod.sh
 
 echo "Enabling systemd units in the image..."
-systemctl --root="${MNT_ROOT}" unmask hostapd
-echo "disabled hostapd"
-systemctl --root="${MNT_ROOT}" disable hostapd.service
-echo "enabled hostapd@wlan0"
-systemctl --root="${MNT_ROOT}" enable hostapd@wlan0
-echo "disabled dnsmasq"
-systemctl --root="${MNT_ROOT}" disable dnsmasq
-echo "enabled border0-webui"
-systemctl --root="${MNT_ROOT}" enable border0-webui
-echo "enabled border0-device"
-systemctl --root="${MNT_ROOT}" enable border0-device
-echo "enabled border0-metrics"
-systemctl --root="${MNT_ROOT}" enable border0-metrics
-echo "disabled triggerhappy"
-systemctl --root="${MNT_ROOT}" disable triggerhappy.service
-echo "disabled avahi-daemon"
-systemctl --root="${MNT_ROOT}" disable avahi-daemon.service
-echo "disabled rpcbind"
-systemctl --root="${MNT_ROOT}" disable rpcbind.service
-echo "disabled bluetooth"
-systemctl --root="${MNT_ROOT}" disable bluetooth.service
-echo "disabled bluetooth-data-storage"
-systemctl --root="${MNT_ROOT}" enable ssh
-echo "enabled ssh"
+# Non-fatal wrapper: Pi OS releases shuffle which units ship by default, and
+# a missing unit shouldn't kill a 10-minute build. Warns but doesn't abort.
+sctl() {
+    if ! systemctl --root="${MNT_ROOT}" "$@"; then
+        echo "  warning: systemctl $* failed (unit missing or already in target state) — continuing" >&2
+    fi
+}
+
+sctl unmask hostapd
+sctl disable hostapd.service
+sctl enable hostapd@wlan0
+sctl disable dnsmasq
+sctl enable border0-webui
+sctl enable border0-device
+sctl enable border0-metrics
+sctl enable ssh
+# Speculative disables — some only exist on Desktop, not Lite.
+for unit in triggerhappy.service avahi-daemon.service rpcbind.service bluetooth.service bluetooth-data-storage.service; do
+    sctl disable "${unit}"
+done
 
 
 
 if [ "${EDIT_CHROOT:-false}" = "true" ]; then
     echo "Dropping into chroot shell..."
-    chroot "${MNT_ROOT}" /bin/bash
+    LANG=C LC_ALL=C chroot "${MNT_ROOT}" /bin/bash
     PS1='(chroot) \u@\h:\w\$ '
 fi
 # # and then run the modification script with the following command:
@@ -330,6 +369,7 @@ fi
 
 # 8. Cleanup: Unmount pseudo-filesystems, the qemu bind mount, and partitions.
 echo "Cleaning up chroot environment..."
+umount "${MNT_ROOT}/dev/pts"
 umount "${MNT_ROOT}/proc"
 umount "${MNT_ROOT}/sys"
 umount "${MNT_ROOT}/dev"
