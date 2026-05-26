@@ -14,6 +14,7 @@ import signal
 import base64
 import hashlib
 import datetime
+import tempfile
 import urllib.request
 from ...extensions import login_manager
 
@@ -21,28 +22,29 @@ from ...extensions import login_manager
 pending_logins = {}
 pending_lock = threading.Lock()
 LOGIN_FLOW_TTL = 300  # seconds to keep pending login flows before cleanup
+# Web-UI SSO flows run the CLI with HOME pointed at a per-flow tempdir so the
+# CLI writes its client_token there (HOME/.border0/client_token) instead of
+# stomping on /root/.border0/client_token. That keeps the runtime CLI token
+# (e.g. a manually-installed E2E service-account token) isolated from the
+# transient SSO token the web UI uses only to authenticate the browser
+# session.
+SSO_FLOW_ROOT = '/var/lib/border0-webui/ssoflows'
+
+
+def _flow_token_path(flow_home):
+    return os.path.join(flow_home, '.border0', 'client_token')
+
+
+def _cleanup_flow_dir(flow_home):
+    if not flow_home:
+        return
+    try:
+        shutil.rmtree(flow_home, ignore_errors=True)
+    except Exception:
+        pass
 
 auth_bp = Blueprint('auth', __name__)
-def delete_token_file(token_path):
-    def _delete_with_delay():
-        breadcrumb_path = '/etc/border0/first_login_done'
-        delay = 30 if not os.path.exists(breadcrumb_path) else 10
-        try:
-            current_app.logger.info(
-                f"Waiting {delay}s before removing token file (breadcrumb exists: {os.path.exists(breadcrumb_path)})"
-            )
-        except Exception:
-            pass
-        time.sleep(delay)
-        try:
-            os.remove(token_path)
-            current_app.logger.info(f"Removed token file: {token_path}")
-        except Exception as e:
-            current_app.logger.info(f"Failed to remove token file {token_path}: {e}")
-    
-    # Run deletion in background thread
-    thread = threading.Thread(target=_delete_with_delay, daemon=True)
-    thread.start()
+
 
 @auth_bp.before_app_request
 def enforce_single_session():
@@ -120,11 +122,15 @@ def login():
                     pass
 
                 try:
+                    os.makedirs(SSO_FLOW_ROOT, exist_ok=True)
+                    flow_home = tempfile.mkdtemp(prefix=f'{login_id}-', dir=SSO_FLOW_ROOT)
+                    os.makedirs(os.path.join(flow_home, '.border0'), exist_ok=True)
+                    flow_token_path = _flow_token_path(flow_home)
                     env = os.environ.copy()
                     env.update({
                         'SHELL': '/bin/bash',
                         'LOGNAME': 'root',
-                        'HOME': '/root',
+                        'HOME': flow_home,
                         'USER': 'root',
                     })
                     proc = subprocess.Popen(
@@ -137,7 +143,12 @@ def login():
                         env=env
                     )
                     with pending_lock:
-                        pending_logins[login_id] = {'proc': proc, 'start': time.time()}
+                        pending_logins[login_id] = {
+                            'proc': proc,
+                            'start': time.time(),
+                            'flow_home': flow_home,
+                            'token_path': flow_token_path,
+                        }
                     # collect initial CLI output lines
                     log_lines = []
 
@@ -174,29 +185,10 @@ def login():
                         timer = threading.Timer(120, _cleanup_proc, args=(proc,))
                         timer.daemon = True
                         timer.start()
-
-                        def monitor_and_restart(token_path, p):
-                            for _ in range(60):
-                                if os.path.isfile(token_path):
-                                    try:
-                                        os.killpg(p.pid, signal.SIGTERM)
-                                    except Exception:
-                                        pass
-                                    try:
-                                        p.wait(timeout=5)
-                                    except Exception:
-                                        pass
-                                    subprocess.run(
-                                        ['systemctl', 'restart', 'border0-device'],
-                                        check=False
-                                    )
-                                    break
-                                time.sleep(2)
-                        threading.Thread(
-                            target=monitor_and_restart,
-                            args=(token_file, proc),
-                            daemon=True
-                        ).start()
+                        # Provisioning of /root/.border0/client_token + bounce
+                        # of border0-device happens inside login_callback so
+                        # it runs synchronously before we rmtree the flow
+                        # tempdir. No watcher thread needed here.
                     else:
                         # no URL found; kill CLI and reap, then log output
                         try:
@@ -207,6 +199,9 @@ def login():
                             proc.wait(timeout=5)
                         except Exception:
                             pass
+                        with pending_lock:
+                            pending_logins.pop(login_id, None)
+                        _cleanup_flow_dir(flow_home)
                         current_app.logger.error(
                             "Border0 CLI login failed; output:\n%s",
                             ''.join(log_lines)
@@ -269,10 +264,9 @@ def login():
 @auth_bp.route('/login/status', methods=['GET'])
 def login_status():
     login_id = request.args.get('login_id')
-    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
-    authenticated = os.path.isfile(token_file)
     error = None
     now = time.time()
+    expired_homes = []
     with pending_lock:
         for lid, entry in list(pending_logins.items()):
             if now - entry['start'] > LOGIN_FLOW_TTL:
@@ -280,8 +274,19 @@ def login_status():
                     os.killpg(entry['proc'].pid, signal.SIGTERM)
                 except Exception:
                     pass
+                expired_homes.append(entry.get('flow_home'))
                 pending_logins.pop(lid, None)
         entry = pending_logins.get(login_id)
+    for home in expired_homes:
+        _cleanup_flow_dir(home)
+    # Only the SSO subprocess for *this* login_id is allowed to satisfy the
+    # status check; a stale token file at a different path (CLI E2E token,
+    # previous flow) must never short-circuit the poll.
+    authenticated = False
+    if entry is not None:
+        flow_token = entry.get('token_path')
+        if flow_token and os.path.isfile(flow_token):
+            authenticated = True
     proc = entry['proc'] if entry else None
     if not authenticated and proc is not None:
         code = proc.poll()
@@ -289,6 +294,7 @@ def login_status():
             error = f'Authentication process exited with code {code}'
             with pending_lock:
                 pending_logins.pop(login_id, None)
+            _cleanup_flow_dir(entry.get('flow_home'))
     return jsonify({'authenticated': authenticated, 'error': error})
 
 @auth_bp.route('/login/callback')
@@ -297,6 +303,8 @@ def login_callback():
     with pending_lock:
         entry = pending_logins.pop(login_id, None)
     proc = entry['proc'] if entry else None
+    flow_home = entry.get('flow_home') if entry else None
+    flow_token = entry.get('token_path') if entry else None
     if not proc:
         flash('Invalid or expired login flow. Please log in again.', 'danger')
         return redirect(url_for('auth.login'))
@@ -309,9 +317,14 @@ def login_callback():
     except Exception:
         pass
 
-    token_file = current_app.config.get('BORDER0_TOKEN_PATH')
+    if not flow_token or not os.path.isfile(flow_token):
+        _cleanup_flow_dir(flow_home)
+        flash('Login did not complete; please try again.', 'danger')
+        return redirect(url_for('auth.login'))
+
+    real_token = current_app.config.get('BORDER0_TOKEN_PATH')
     try:
-        token_str = open(token_file).read().strip()
+        token_str = open(flow_token).read().strip()
         parts = token_str.split('.')
         if len(parts) >= 2:
             padding = '=' * (-len(parts[1]) % 4)
@@ -329,6 +342,31 @@ def login_callback():
                 response = redirect(request.args.get('next') or url_for('home.index'))
                 response.set_cookie('device_id', device_id, httponly=True, samesite='Lax')
 
+                # First-install provisioning: seed /root/.border0/client_token
+                # from the SSO token only if the operator hasn't put their
+                # own credential there (E2E paste, prior install, etc.).
+                # Restart border0-device so the daemon picks up the new
+                # credential. Done synchronously here so we don't race
+                # against the flow tempdir cleanup below.
+                provisioned = False
+                if real_token and not os.path.isfile(real_token):
+                    try:
+                        os.makedirs(os.path.dirname(real_token), exist_ok=True)
+                        shutil.copy2(flow_token, real_token)
+                        provisioned = True
+                    except Exception as e:
+                        current_app.logger.warning(
+                            f"Failed to seed {real_token}: {e}"
+                        )
+                if provisioned:
+                    try:
+                        subprocess.run(
+                            ['systemctl', 'restart', 'border0-device'],
+                            check=False,
+                        )
+                    except Exception:
+                        pass
+
                 org_path = current_app.config.get('BORDER0_ORG_PATH')
                 try:
                     os.makedirs(os.path.dirname(org_path), exist_ok=True)
@@ -344,10 +382,6 @@ def login_callback():
                     meta['device_id'] = device_id
                     with open(meta_path, 'w') as mf:
                         json.dump(meta, mf)
-                    try:
-                        delete_token_file(token_file)
-                    except Exception:
-                        pass
                     breadcrumb_path = '/etc/border0/first_login_done'
                     try:
                         if not os.path.exists(breadcrumb_path):
@@ -363,9 +397,11 @@ def login_callback():
                         )
                 except Exception:
                     pass
+                _cleanup_flow_dir(flow_home)
                 return response
     except Exception as e:
         flash(f'Failed to authenticate: {e}', 'danger')
+    _cleanup_flow_dir(flow_home)
     return redirect(url_for('auth.login'))
 @auth_bp.route('/switch_user', methods=['POST'])
 @login_required
@@ -406,10 +442,9 @@ def logout():
         return redirect(url_for('home.index'))
     logout_user()
     session['skip_token'] = True
-    try:
-        delete_token_file(token_file)
-    except Exception:
-        pass
+    # Drop the web-UI session metadata only. The runtime CLI token at
+    # token_file is owned by the operator (e.g. an E2E service-account token)
+    # and must survive a UI logout so border0 CLI keeps working.
     try:
         os.remove(meta_file)
     except Exception:

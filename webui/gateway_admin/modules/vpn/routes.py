@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 import json
 import base64
+import datetime
 from flask_login import login_required
 import os
 import subprocess
@@ -8,7 +9,114 @@ import re
 import time
 import signal
 import threading
+import yaml
 from ...config import Config
+
+
+def _decode_jwt_payload(token_path):
+    """Return the decoded JWT payload dict, or None on any failure."""
+    try:
+        token_str = open(token_path).read().strip()
+        parts = token_str.split('.')
+        if len(parts) < 2:
+            return None
+        padding = '=' * (-len(parts[1]) % 4)
+        return json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+    except Exception:
+        return None
+
+
+def _ts_to_iso(ts):
+    if not isinstance(ts, (int, float)):
+        return None
+    try:
+        return datetime.datetime.fromtimestamp(ts).isoformat(sep=' ', timespec='seconds')
+    except Exception:
+        return None
+
+
+def _summarize_client_token(token_path):
+    """Inspect /root/.border0/client_token and classify it.
+
+    Returns a dict the template can render directly, or None if no token
+    is present. The 'kind' field is one of 'service_account', 'user', or
+    'unknown' so the UI can label the token clearly (E2E vs SSO).
+    """
+    if not os.path.isfile(token_path):
+        return None
+    payload = _decode_jwt_payload(token_path)
+    try:
+        stat = os.stat(token_path)
+        mtime_iso = datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(sep=' ', timespec='seconds')
+    except Exception:
+        mtime_iso = None
+    info = {
+        'path': token_path,
+        'mtime': mtime_iso,
+        'raw': payload or {},
+    }
+    if not payload:
+        info['kind'] = 'unknown'
+        return info
+    if payload.get('service_account_id') or payload.get('service_account'):
+        info['kind'] = 'service_account'
+        info['identity'] = payload.get('service_account') or payload.get('nickname')
+        info['identity_id'] = payload.get('service_account_id') or payload.get('user_id')
+    elif payload.get('user_email') or payload.get('sub'):
+        info['kind'] = 'user'
+        info['identity'] = payload.get('user_email') or payload.get('name') or payload.get('nickname')
+        info['identity_id'] = payload.get('sub') or payload.get('user_id')
+    else:
+        info['kind'] = 'unknown'
+        info['identity'] = payload.get('nickname') or payload.get('user_id')
+        info['identity_id'] = payload.get('user_id')
+    info['org_subdomain'] = payload.get('org_subdomain')
+    info['org_id'] = payload.get('org_id')
+    info['issued_at'] = _ts_to_iso(payload.get('iat'))
+    info['expires_at'] = _ts_to_iso(payload.get('exp'))
+    return info
+
+
+def _load_device_state(state_path):
+    """Parse device.state.yaml and return a flat dict for the current org."""
+    if not os.path.isfile(state_path):
+        return None
+    try:
+        with open(state_path) as f:
+            doc = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+    current = doc.get('current_organization')
+    orgs = doc.get('organizations') or {}
+    org_block = orgs.get(current) if current else None
+    if not isinstance(org_block, dict):
+        # Fall back to the first org block if 'current_organization' is missing.
+        for v in orgs.values():
+            if isinstance(v, dict):
+                org_block = v
+                break
+    if not isinstance(org_block, dict):
+        return None
+    key_block = org_block.get('key') or {}
+    profile = org_block.get('profile') or {}
+    return {
+        'device_id': org_block.get('device_id'),
+        'self_ip_v4': org_block.get('self_ip_v4'),
+        'self_ip_v6': org_block.get('self_ip_v6'),
+        'network_cidr_v4': org_block.get('network_cidr_v4'),
+        'network_cidr_v6': org_block.get('network_cidr_v6'),
+        'resources_cidr_v4': org_block.get('resources_cidr_v4'),
+        'resources_cidr_v6': org_block.get('resources_cidr_v6'),
+        'public_key': key_block.get('public_key'),
+        'key_expires_at': key_block.get('expires_at'),
+        'managed_interfaces': org_block.get('managed_network_interfaces') or [],
+        'exit_node': org_block.get('exit_node'),
+        'last_updated_at': org_block.get('last_updated_at'),
+        'profile_name': profile.get('name'),
+        'profile_email': profile.get('email'),
+        'org_subdomain': profile.get('org_subdomain'),
+        'org_id': profile.get('org_id'),
+    }
 
 vpn_bp = Blueprint('vpn', __name__, url_prefix='/vpn')
 
@@ -100,7 +208,7 @@ def index():
                         'USER': 'root'
                     })
                     proc = subprocess.Popen(
-                        [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
+                        [Config.BORDER0_CLI_PATH, 'client', 'login', f'--org={org}'],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
@@ -188,7 +296,7 @@ def index():
                         'USER': 'root',
                     })
                     proc = subprocess.Popen(
-                        [Config.BORDER0_CLI_PATH, 'client', 'login', '--org', org],
+                        [Config.BORDER0_CLI_PATH, 'client', 'login', f'--org={org}'],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
@@ -372,11 +480,18 @@ def index():
                 exitnode_error = result.stderr or result.stdout
         except Exception as e:
             exitnode_error = str(e)
-        # Populate exit nodes directly from state
+        # Populate exit nodes directly from state.
+        # Newer border0 CLI returns peers_v2 / services_v2 as dicts keyed by
+        # public_key / service_name. Fall back to the legacy list-based
+        # peers / services keys for older CLI builds.
         if state:
-            for peer in state.get('peers', []):
+            peers = state.get('peers_v2') or state.get('peers') or []
+            peer_iter = peers.values() if isinstance(peers, dict) else peers
+            for peer in peer_iter:
                 peer_name = peer.get('name')
-                for service in peer.get('services', []):
+                services = peer.get('services_v2') or peer.get('services') or []
+                svc_iter = services.values() if isinstance(services, dict) else services
+                for service in svc_iter:
                     if service.get('type') == 'exit_node':
                         exit_nodes.append({
                             'name': service.get('name'),
@@ -384,6 +499,9 @@ def index():
                             'dns_name': service.get('dns_name'),
                             'public_ips': service.get('public_ips', [])
                         })
+    client_token_info = _summarize_client_token(token_file)
+    device_state_path = os.path.join(os.path.dirname(token_file or ''), 'device.state.yaml')
+    device_state = _load_device_state(device_state_path)
     return render_template(
         'vpn/index.html',
         org=org,
@@ -397,4 +515,6 @@ def index():
         exitnode_error=exitnode_error,
         device_status=device_status,
         user_info=user_info,
+        client_token_info=client_token_info,
+        device_state=device_state,
     )

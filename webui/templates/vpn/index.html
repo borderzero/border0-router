@@ -106,6 +106,80 @@
   </div>
 {% endif %}
 
+{% if client_token_info or device_state %}
+  <div class="row mb-4">
+    {% if client_token_info %}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header">
+          <strong>CLI Token</strong>
+          {% if client_token_info.kind == 'service_account' %}
+            <span class="badge bg-info ms-2">Service Account (E2E)</span>
+          {% elif client_token_info.kind == 'user' %}
+            <span class="badge bg-primary ms-2">User SSO</span>
+          {% else %}
+            <span class="badge bg-secondary ms-2">Unknown</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <p class="mb-1"><strong>Identity:</strong> {{ client_token_info.identity or '-' }}</p>
+          {% if client_token_info.identity_id %}
+          <p class="mb-1"><strong>Identity ID:</strong> <code>{{ client_token_info.identity_id }}</code></p>
+          {% endif %}
+          {% if client_token_info.org_subdomain %}
+          <p class="mb-1"><strong>Org:</strong> {{ client_token_info.org_subdomain }}</p>
+          {% endif %}
+          {% if client_token_info.issued_at %}
+          <p class="mb-1"><strong>Issued:</strong> {{ client_token_info.issued_at }}</p>
+          {% endif %}
+          <p class="mb-1"><strong>Expires:</strong>
+            {% if client_token_info.expires_at %}{{ client_token_info.expires_at }}
+            {% else %}<span class="text-muted">never</span>{% endif %}
+          </p>
+          <p class="mb-0"><small class="text-muted">{{ client_token_info.path }} (mtime {{ client_token_info.mtime or 'n/a' }})</small></p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if device_state %}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header"><strong>Device</strong></div>
+        <div class="card-body">
+          {% if device_state.profile_name %}
+          <p class="mb-1"><strong>Profile:</strong> {{ device_state.profile_name }}{% if device_state.profile_email %} &lt;{{ device_state.profile_email }}&gt;{% endif %}</p>
+          {% endif %}
+          {% if device_state.device_id %}
+          <p class="mb-1"><strong>Device ID:</strong> <code>{{ device_state.device_id }}</code></p>
+          {% endif %}
+          {% if device_state.self_ip_v4 %}
+          <p class="mb-1"><strong>VPN IPv4:</strong> <code>{{ device_state.self_ip_v4 }}</code></p>
+          {% endif %}
+          {% if device_state.self_ip_v6 %}
+          <p class="mb-1"><strong>VPN IPv6:</strong> <code>{{ device_state.self_ip_v6 }}</code></p>
+          {% endif %}
+          {% if device_state.managed_interfaces %}
+          <p class="mb-1"><strong>Interface:</strong> {{ device_state.managed_interfaces | join(', ') }}</p>
+          {% endif %}
+          {% if device_state.exit_node %}
+          <p class="mb-1"><strong>Exit Node:</strong> {{ device_state.exit_node }}</p>
+          {% endif %}
+          {% if device_state.public_key %}
+          <p class="mb-1"><strong>WireGuard Public Key:</strong> <code class="user-select-all">{{ device_state.public_key }}</code></p>
+          {% endif %}
+          {% if device_state.key_expires_at %}
+          <p class="mb-1"><strong>WG Key Expires:</strong> {{ device_state.key_expires_at }}</p>
+          {% endif %}
+          {% if device_state.last_updated_at %}
+          <p class="mb-0"><small class="text-muted">State last updated: {{ device_state.last_updated_at }}</small></p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+
 {% if service_active %}
   <div class="card mb-4">
     <div class="card-body">
