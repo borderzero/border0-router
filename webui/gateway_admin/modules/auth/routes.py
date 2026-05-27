@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session, g
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
 import os
@@ -17,6 +17,19 @@ import datetime
 import tempfile
 import urllib.request
 from ...extensions import login_manager
+from ... import auth_mode
+
+ANONYMOUS_USER_ID = 'anonymous@local'
+# Endpoints that must remain reachable even when the session is being
+# torn down by a mode change, so the user can finish the redirect chain
+# without bouncing in a loop.
+_AUTH_FLOW_ENDPOINTS = frozenset({
+    'auth.login',
+    'auth.login_status',
+    'auth.login_callback',
+    'auth.logout',
+    'static',
+})
 
 # map login_id to Border0 CLI subprocess for ongoing login flows
 pending_logins = {}
@@ -46,8 +59,91 @@ def _cleanup_flow_dir(flow_home):
 auth_bp = Blueprint('auth', __name__)
 
 
+class User(UserMixin):
+    def __init__(self, id):
+        self.id = id
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User(user_id)
+
+
+@auth_bp.before_app_request
+def apply_auth_mode():
+    """Honor the resolved auth mode before any other auth check runs.
+
+    - mode=none : auto-log-in a synthetic anonymous user so every
+      @login_required route passes. No session/JWT enforcement.
+    - mode=sso/local : if the session was established under a different
+      mode (e.g. operator just flipped the toggle), drop the session
+      and bounce to /login so the user re-authenticates under the
+      new regime.
+
+    Stashes the resolved mode on flask.g so downstream hooks
+    (enforce_single_session) get a consistent value within one request
+    even if the underlying file's mtime changes mid-flight.
+    """
+    # request.endpoint is None for un-routed paths (404 candidates,
+    # OPTIONS preflights, errors during routing). Don't mutate sessions
+    # for those, and don't touch static-asset requests — both would
+    # cause spurious Set-Cookie churn.
+    endpoint = request.endpoint
+    if endpoint is None or endpoint == 'static':
+        return None
+
+    mode = auth_mode.current_mode()
+    g.auth_mode = mode
+
+    if mode == 'none':
+        # Already the synthetic anonymous user? Just make sure the
+        # marker is correct and move on — no session mutation.
+        if current_user.is_authenticated and current_user.get_id() == ANONYMOUS_USER_ID:
+            if session.get('auth_mode') != 'none':
+                session['auth_mode'] = 'none'
+            return None
+        # Drop any prior real-user session (token_iat, device_id, etc.)
+        # before installing the synthetic one — we don't want stale
+        # SSO state riding along under the anonymous identity.
+        session.clear()
+        login_user(User(ANONYMOUS_USER_ID))
+        session.permanent = True
+        session['auth_mode'] = 'none'
+        return None
+
+    # sso or local. Skip mismatch handling on the auth-flow endpoints
+    # themselves so we don't redirect-loop while the user is mid-login.
+    if endpoint in _AUTH_FLOW_ENDPOINTS:
+        return None
+
+    if current_user.is_authenticated:
+        session_mode = session.get('auth_mode')
+        if session_mode is None:
+            # Back-fill once; pre-feature sessions are all SSO.
+            session_mode = 'sso'
+            session['auth_mode'] = 'sso'
+        if session_mode != mode:
+            # Mode changed under this session. Tear down + bounce.
+            # NOTE: this triggers on plain GET requests, so a
+            # cross-origin link click after a mode flip can drop the
+            # victim's session. Acceptable — it's a logout, not an
+            # auth grant — but worth knowing.
+            logout_user()
+            session.clear()
+            flash('Authentication mode changed; please log in again.', 'warning')
+            return redirect(url_for('auth.login'))
+    return None
+
+
 @auth_bp.before_app_request
 def enforce_single_session():
+    # Only meaningful in SSO mode — local/none don't have a JWT iat or
+    # per-device cookie binding to enforce. Use the mode snapshot from
+    # apply_auth_mode so both hooks see the same value within one
+    # request even if the file mtime changes between them.
+    mode = getattr(g, 'auth_mode', None) or auth_mode.current_mode()
+    if mode != 'sso':
+        return None
     # Invalidate sessions when a new login (token refresh) occurs elsewhere
     if current_user.is_authenticated:
         meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
@@ -68,17 +164,15 @@ def enforce_single_session():
                     return redirect(url_for('auth.login'))
             except Exception:
                 pass
-
-class User(UserMixin):
-    def __init__(self, id):
-        self.id = id
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User(user_id)
+    return None
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    # In 'none' mode auth is disabled; the before_app_request hook has
+    # already logged in an anonymous user. Visiting /login explicitly
+    # should bounce home rather than render the (now-pointless) SSO form.
+    if auth_mode.current_mode() == 'none':
+        return redirect(url_for('home.index'))
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
     # assign or preserve a unique login_id for this login flow
@@ -230,6 +324,7 @@ def login():
                         if isinstance(payload.get('iat'), (int, str)):
                             session['token_iat'] = payload.get('iat')
                         session['authenticated_via_SSO'] = True
+                        session['auth_mode'] = 'sso'
                         # persist org_id/subdomain and token metadata for UI display
                         org_path = current_app.config.get('BORDER0_ORG_PATH')
                         try:
@@ -337,6 +432,7 @@ def login_callback():
                 if isinstance(payload.get('iat'), (int, str)):
                     session['token_iat'] = payload.get('iat')
                 session['authenticated_via_SSO'] = True
+                session['auth_mode'] = 'sso'
                 # Generate and bind a per-device ID
                 device_id = uuid.uuid4().hex
                 response = redirect(request.args.get('next') or url_for('home.index'))
@@ -415,6 +511,11 @@ def switch_user():
 @auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required
 def logout():
+    # In 'none' mode there is nothing to log out of — the next request
+    # will just be auto-logged-in again by apply_auth_mode.
+    if auth_mode.current_mode() == 'none':
+        flash('Authentication is disabled; logout has no effect.', 'info')
+        return redirect(url_for('home.index'))
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
     token_exists = os.path.isfile(meta_file)
