@@ -727,6 +727,103 @@ def system():
     """Handle system operations: show system page on GET; perform reboot, update checks, upgrade, or factory reset on POST."""
     if request.method == 'POST':
         action = request.form.get('action')
+        # Auth-mode toggle (radios + optional credential fields)
+        if action == 'set_auth_mode':
+            # In 'none' mode any LAN visitor is the synthetic anonymous
+            # user. Letting that identity mutate the auth mode (or set
+            # the local credential) would let an attacker on the trusted
+            # network lock the real operator out. To switch *out of*
+            # 'none', the operator has to either set BORDER0_WEBUI_AUTH_MODE
+            # in the systemd unit or remove /etc/border0/auth_mode.json
+            # by hand. Document this in the response.
+            if current_user.get_id() == ANONYMOUS_USER_ID:
+                flash(
+                    'Cannot change auth mode while authentication is '
+                    'disabled. Set BORDER0_WEBUI_AUTH_MODE in the '
+                    'border0-webui systemd unit, or remove '
+                    '/etc/border0/auth_mode.json, then restart the '
+                    'border0-webui service.',
+                    'danger',
+                )
+                return redirect(url_for('auth.system'))
+            if auth_mode.is_env_locked():
+                flash(
+                    f'Auth mode is locked by {auth_mode.ENV_VAR} env var.',
+                    'warning',
+                )
+                return redirect(url_for('auth.system'))
+            new_mode = (request.form.get('mode') or '').strip().lower()
+            if new_mode not in auth_mode.VALID_MODES:
+                flash('Invalid auth mode.', 'danger')
+                return redirect(url_for('auth.system'))
+            if new_mode == 'local':
+                username = (request.form.get('username') or '').strip()
+                password = request.form.get('password') or ''
+                confirm = request.form.get('password_confirm') or ''
+                if password or confirm or not auth_mode.has_local_credential():
+                    if password != confirm:
+                        flash('Passwords do not match.', 'danger')
+                        return redirect(url_for('auth.system'))
+                    if not username or len(password) < 8:
+                        flash(
+                            'Local mode requires a username and an 8+ '
+                            'character password.',
+                            'danger',
+                        )
+                        return redirect(url_for('auth.system'))
+                    try:
+                        auth_mode.save_local_credential(username, password)
+                    except ValueError as e:
+                        flash(f'Failed to save credential: {e}', 'danger')
+                        return redirect(url_for('auth.system'))
+            try:
+                auth_mode.save_mode(new_mode)
+            except (RuntimeError, ValueError) as e:
+                flash(str(e), 'danger')
+                return redirect(url_for('auth.system'))
+            current_app.logger.info(
+                'auth mode changed to %s by %s from %s',
+                new_mode, current_user.get_id(), _client_ip(),
+            )
+            # Force re-login under the new regime. The before-request hook
+            # would do this on the next request anyway, but doing it here
+            # gives a clean flash and saves a round-trip.
+            logout_user()
+            session.clear()
+            flash(
+                f'Authentication mode set to {new_mode}. Please sign in again.',
+                'success',
+            )
+            return redirect(url_for('auth.login'))
+        # Reset / change the local credential while staying in local mode.
+        if action == 'set_local_password':
+            if current_user.get_id() == ANONYMOUS_USER_ID:
+                flash(
+                    'Cannot set a local credential while authentication '
+                    'is disabled. Switch to a different mode first.',
+                    'danger',
+                )
+                return redirect(url_for('auth.system'))
+            if auth_mode.current_mode() != 'local':
+                flash('Local credential is only used in local auth mode.', 'warning')
+                return redirect(url_for('auth.system'))
+            username = (request.form.get('username') or '').strip()
+            password = request.form.get('password') or ''
+            confirm = request.form.get('password_confirm') or ''
+            if password != confirm:
+                flash('Passwords do not match.', 'danger')
+                return redirect(url_for('auth.system'))
+            try:
+                auth_mode.save_local_credential(username, password)
+            except ValueError as e:
+                flash(f'Failed to save credential: {e}', 'danger')
+                return redirect(url_for('auth.system'))
+            current_app.logger.info(
+                'local credential updated for user=%s by %s from %s',
+                username, current_user.get_id(), _client_ip(),
+            )
+            flash('Local credential updated.', 'success')
+            return redirect(url_for('auth.system'))
         # Reboot
         if action == 'reboot':
             try:
@@ -907,11 +1004,20 @@ def system():
     except Exception:
         ssh_keys = []
 
+    local_cred = auth_mode.load_local_credential() or {}
     return render_template(
         'auth/system.html',
         uptime=uptime_str,
         current_version=current_version,
         update_available=update_available,
         new_version=new_version,
-        ssh_keys=ssh_keys
+        ssh_keys=ssh_keys,
+        auth_mode_current=auth_mode.current_mode(),
+        auth_mode_file_value=auth_mode.file_mode(),
+        auth_mode_env_value=auth_mode.env_mode(),
+        auth_mode_env_locked=auth_mode.is_env_locked(),
+        auth_mode_env_var=auth_mode.ENV_VAR,
+        auth_mode_anonymous=(current_user.get_id() == ANONYMOUS_USER_ID),
+        local_credential_set=auth_mode.has_local_credential(),
+        local_credential_username=local_cred.get('username', ''),
     )
