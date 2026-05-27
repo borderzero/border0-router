@@ -2,6 +2,146 @@
 {% block content %}
 <div class="row justify-content-center" style="margin-top: 50px;">
   <div class="col-md-6">
+    <!-- Web UI Authentication Mode Card -->
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="card-title mb-3">
+          Web UI Authentication
+          {% if auth_mode_env_locked %}
+            <span class="badge bg-secondary align-middle" title="Set by env var">env-locked</span>
+          {% endif %}
+        </h2>
+        <p class="text-muted small mb-3">
+          Controls how the web UI authenticates users. Switching modes signs out
+          the current session.
+        </p>
+        {% if auth_mode_anonymous %}
+        <div class="alert alert-warning small">
+          <strong>Authentication is currently disabled.</strong>
+          To change the mode from here, set
+          <code>{{ auth_mode_env_var }}</code> in the
+          <code>border0-webui</code> systemd unit, or delete
+          <code>/etc/border0/auth_mode.json</code> on the device, then
+          restart <code>border0-webui</code>.
+        </div>
+        {% endif %}
+        {% if auth_mode_env_locked and auth_mode_file_value and auth_mode_env_value != auth_mode_file_value %}
+        <div class="alert alert-info small">
+          Env var pins mode to <strong>{{ auth_mode_env_value }}</strong>,
+          but on-disk file says <strong>{{ auth_mode_file_value }}</strong>.
+          Removing the env var will restore the on-disk mode.
+        </div>
+        {% endif %}
+        <form method="post" action="{{ url_for('auth.system') }}" id="auth-mode-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-check mb-2">
+            <input type="radio" id="mode-sso" name="mode" value="sso" class="form-check-input"
+                   {% if auth_mode_current == 'sso' %}checked{% endif %}
+                   {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+            <label for="mode-sso" class="form-check-label">
+              <strong>Border0 SSO</strong>
+              <span class="text-muted small d-block">Sign in through Border0 identity. Default.</span>
+            </label>
+          </div>
+          <div class="form-check mb-2">
+            <input type="radio" id="mode-local" name="mode" value="local" class="form-check-input"
+                   {% if auth_mode_current == 'local' %}checked{% endif %}
+                   {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+            <label for="mode-local" class="form-check-label">
+              <strong>Local username/password</strong>
+              <span class="text-muted small d-block">For sites where Border0 SSO is unreachable.</span>
+            </label>
+            <div class="mt-2 ms-4 p-3 border rounded" id="local-creds-block"
+                 {% if auth_mode_current != 'local' %}style="display:none"{% endif %}>
+              {% if local_credential_set %}
+                <p class="small mb-2">A credential is already configured for user
+                  <code>{{ local_credential_username }}</code>. Leave blank to keep it.</p>
+              {% endif %}
+              <label class="form-label">Username</label>
+              <input type="text" name="username" class="form-control mb-2"
+                     autocomplete="username"
+                     value="{{ local_credential_username or 'admin' }}"
+                     {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+              <label class="form-label">Password</label>
+              <input type="password" name="password" class="form-control mb-2"
+                     autocomplete="new-password"
+                     {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+              <label class="form-label">Confirm password</label>
+              <input type="password" name="password_confirm" class="form-control mb-2"
+                     autocomplete="new-password"
+                     {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+              <p class="text-muted small mb-0">Min 8 characters.</p>
+            </div>
+          </div>
+          <div class="form-check mb-3">
+            <input type="radio" id="mode-none" name="mode" value="none" class="form-check-input"
+                   {% if auth_mode_current == 'none' %}checked{% endif %}
+                   {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}>
+            <label for="mode-none" class="form-check-label">
+              <strong>None &mdash; disable authentication</strong>
+              <span class="text-warning small d-block">
+                Anyone with network access to the web UI will have full access. Use only on trusted LANs.
+              </span>
+            </label>
+          </div>
+          <div>
+            <button type="submit" name="action" value="set_auth_mode" class="btn btn-primary"
+                    {% if auth_mode_env_locked or auth_mode_anonymous %}disabled{% endif %}
+                    onclick="return confirmModeChange();">
+              Apply
+            </button>
+            {% if auth_mode_env_locked %}
+              <small class="text-muted ms-2">Locked by <code>{{ auth_mode_env_var }}</code> env var.</small>
+            {% endif %}
+          </div>
+        </form>
+
+        {% if auth_mode_current == 'local' and local_credential_set and not auth_mode_env_locked %}
+        <hr>
+        <h3 class="h6">Change local password</h3>
+        <form method="post" action="{{ url_for('auth.system') }}" class="mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label">Username</label>
+          <input type="text" name="username" class="form-control mb-2"
+                 autocomplete="username"
+                 value="{{ local_credential_username }}">
+          <label class="form-label">New password</label>
+          <input type="password" name="password" class="form-control mb-2"
+                 autocomplete="new-password" required>
+          <label class="form-label">Confirm new password</label>
+          <input type="password" name="password_confirm" class="form-control mb-2"
+                 autocomplete="new-password" required>
+          <button type="submit" name="action" value="set_local_password" class="btn btn-secondary btn-sm">
+            Update password
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <script>
+      (function () {
+        var localRadio = document.getElementById('mode-local');
+        var ssoRadio = document.getElementById('mode-sso');
+        var noneRadio = document.getElementById('mode-none');
+        var block = document.getElementById('local-creds-block');
+        function update() {
+          if (block) block.style.display = localRadio && localRadio.checked ? '' : 'none';
+        }
+        [localRadio, ssoRadio, noneRadio].forEach(function (r) {
+          if (r) r.addEventListener('change', update);
+        });
+        update();
+        window.confirmModeChange = function () {
+          if (noneRadio && noneRadio.checked) {
+            return confirm(
+              'Switching to "None" disables authentication entirely. Anyone with network access to this device will be able to use the web UI. Continue?'
+            );
+          }
+          return true;
+        };
+      })();
+    </script>
+
     <!-- Software Update Card -->
     <div class="card mb-4">
       <div class="card-body">

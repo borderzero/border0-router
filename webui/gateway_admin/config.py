@@ -66,6 +66,17 @@ class Config:
         'BORDER0_TOKEN_METADATA_PATH',
         os.path.expanduser('/etc/border0/token_metadata.json')
     )
+    # Path where the web UI auth-mode toggle is persisted. JSON: {"mode": ...}
+    # where mode is one of 'none' | 'local' | 'sso'. Env override below wins.
+    AUTH_MODE_PATH = os.environ.get(
+        'AUTH_MODE_PATH',
+        '/etc/border0/auth_mode.json'
+    )
+    # Path where the hashed local-mode credential lives.
+    LOCAL_AUTH_PATH = os.environ.get(
+        'LOCAL_AUTH_PATH',
+        '/etc/border0/local_auth.json'
+    )
     # Path where historical metrics are logged (JSON lines, timestamp in ms)
     METRICS_LOG_PATH = os.environ.get(
         'METRICS_LOG_PATH',

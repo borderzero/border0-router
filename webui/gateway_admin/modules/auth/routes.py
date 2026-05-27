@@ -1,4 +1,5 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session
+from urllib.parse import urlparse, urljoin
+from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session, g
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
 import os
@@ -17,6 +18,18 @@ import datetime
 import tempfile
 import urllib.request
 from ...extensions import login_manager
+from ... import auth_mode
+from ...auth_mode import ANONYMOUS_USER_ID
+# Endpoints that must remain reachable even when the session is being
+# torn down by a mode change, so the user can finish the redirect chain
+# without bouncing in a loop.
+_AUTH_FLOW_ENDPOINTS = frozenset({
+    'auth.login',
+    'auth.login_status',
+    'auth.login_callback',
+    'auth.logout',
+    'static',
+})
 
 # map login_id to Border0 CLI subprocess for ongoing login flows
 pending_logins = {}
@@ -43,11 +56,191 @@ def _cleanup_flow_dir(flow_home):
     except Exception:
         pass
 
+
+# In-memory rate limit for local-auth POST /login. Per-IP sliding window.
+# After _LOCAL_LOGIN_MAX_ATTEMPTS failures inside _LOCAL_LOGIN_WINDOW
+# seconds, the IP is locked out for _LOCAL_LOGIN_LOCKOUT seconds.
+#
+# NOTE: keyed on the effective client IP per _client_ip(). If the webui
+# is ever fronted by a reverse proxy, wrap the WSGI app with
+# werkzeug.middleware.proxy_fix.ProxyFix so request.remote_addr reflects
+# the real client, otherwise the whole internet shares one bucket and
+# the lockout either DOSes legit users or does nothing.
+_local_login_failures = {}
+_local_login_lock = threading.Lock()
+_LOCAL_LOGIN_MAX_ATTEMPTS = 5
+_LOCAL_LOGIN_WINDOW = 60
+_LOCAL_LOGIN_LOCKOUT = 60
+_LOCAL_LOGIN_MAX_TRACKED_IPS = 4096  # FIFO cap on the failure dict
+
+
+def _client_ip():
+    """Best-effort identification of the requesting client.
+
+    Uses ProxyFix-rewritten request.remote_addr when available. A noisy
+    proxy without ProxyFix will degrade the lockout to per-proxy, which
+    is the documented expected behavior.
+    """
+    return request.remote_addr or 'unknown'
+
+
+def _local_login_evict_old(now):
+    """Drop tracked IPs whose entries are all outside the rate window.
+
+    Bounds the dict so a scanner hitting from many IPs can't balloon it.
+    Caller must hold _local_login_lock.
+    """
+    cutoff = now - max(_LOCAL_LOGIN_WINDOW, _LOCAL_LOGIN_LOCKOUT)
+    for ip in list(_local_login_failures.keys()):
+        attempts = _local_login_failures[ip]
+        if not attempts or attempts[-1] < cutoff:
+            del _local_login_failures[ip]
+    # Hard cap regardless: drop the oldest entries (by last attempt) until
+    # we're back under the limit.
+    if len(_local_login_failures) > _LOCAL_LOGIN_MAX_TRACKED_IPS:
+        ordered = sorted(
+            _local_login_failures.items(),
+            key=lambda kv: kv[1][-1] if kv[1] else 0,
+        )
+        excess = len(_local_login_failures) - _LOCAL_LOGIN_MAX_TRACKED_IPS
+        for ip, _ in ordered[:excess]:
+            _local_login_failures.pop(ip, None)
+
+
+def _local_login_check_lockout(ip):
+    """Return None if the IP may attempt login, else seconds until unlock."""
+    now = time.time()
+    with _local_login_lock:
+        _local_login_evict_old(now)
+        attempts = [t for t in _local_login_failures.get(ip, []) if t > now - _LOCAL_LOGIN_WINDOW]
+        if len(attempts) >= _LOCAL_LOGIN_MAX_ATTEMPTS:
+            wait = (attempts[0] + _LOCAL_LOGIN_LOCKOUT) - now
+            if wait > 0:
+                _local_login_failures[ip] = attempts
+                return int(wait) + 1
+            _local_login_failures.pop(ip, None)
+            return None
+        _local_login_failures[ip] = attempts
+        return None
+
+
+def _local_login_record_failure(ip):
+    now = time.time()
+    with _local_login_lock:
+        _local_login_evict_old(now)
+        attempts = [t for t in _local_login_failures.get(ip, []) if t > now - _LOCAL_LOGIN_WINDOW]
+        attempts.append(now)
+        _local_login_failures[ip] = attempts
+
+
+def _local_login_record_success(ip):
+    with _local_login_lock:
+        _local_login_failures.pop(ip, None)
+
+
+def _is_safe_redirect(target):
+    """Reject off-site / scheme-changing values for the post-login ``next``.
+
+    Only allow same-host targets (or relative paths) over the same scheme.
+    """
+    if not target:
+        return False
+    ref = urlparse(request.host_url)
+    test = urlparse(urljoin(request.host_url, target))
+    return (
+        test.scheme in ('http', 'https')
+        and ref.netloc == test.netloc
+    )
+
+
 auth_bp = Blueprint('auth', __name__)
+
+
+class User(UserMixin):
+    def __init__(self, id):
+        self.id = id
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User(user_id)
+
+
+@auth_bp.before_app_request
+def apply_auth_mode():
+    """Honor the resolved auth mode before any other auth check runs.
+
+    - mode=none : auto-log-in a synthetic anonymous user so every
+      @login_required route passes. No session/JWT enforcement.
+    - mode=sso/local : if the session was established under a different
+      mode (e.g. operator just flipped the toggle), drop the session
+      and bounce to /login so the user re-authenticates under the
+      new regime.
+
+    Stashes the resolved mode on flask.g so downstream hooks
+    (enforce_single_session) get a consistent value within one request
+    even if the underlying file's mtime changes mid-flight.
+    """
+    # request.endpoint is None for un-routed paths (404 candidates,
+    # OPTIONS preflights, errors during routing). Don't mutate sessions
+    # for those, and don't touch static-asset requests — both would
+    # cause spurious Set-Cookie churn.
+    endpoint = request.endpoint
+    if endpoint is None or endpoint == 'static':
+        return None
+
+    mode = auth_mode.current_mode()
+    g.auth_mode = mode
+
+    if mode == 'none':
+        # Already the synthetic anonymous user? Just make sure the
+        # marker is correct and move on — no session mutation.
+        if current_user.is_authenticated and current_user.get_id() == ANONYMOUS_USER_ID:
+            if session.get('auth_mode') != 'none':
+                session['auth_mode'] = 'none'
+            return None
+        # Drop any prior real-user session (token_iat, device_id, etc.)
+        # before installing the synthetic one — we don't want stale
+        # SSO state riding along under the anonymous identity.
+        session.clear()
+        login_user(User(ANONYMOUS_USER_ID))
+        session.permanent = True
+        session['auth_mode'] = 'none'
+        return None
+
+    # sso or local. Skip mismatch handling on the auth-flow endpoints
+    # themselves so we don't redirect-loop while the user is mid-login.
+    if endpoint in _AUTH_FLOW_ENDPOINTS:
+        return None
+
+    if current_user.is_authenticated:
+        session_mode = session.get('auth_mode')
+        if session_mode is None:
+            # Back-fill once; pre-feature sessions are all SSO.
+            session_mode = 'sso'
+            session['auth_mode'] = 'sso'
+        if session_mode != mode:
+            # Mode changed under this session. Tear down + bounce.
+            # NOTE: this triggers on plain GET requests, so a
+            # cross-origin link click after a mode flip can drop the
+            # victim's session. Acceptable — it's a logout, not an
+            # auth grant — but worth knowing.
+            logout_user()
+            session.clear()
+            flash('Authentication mode changed; please log in again.', 'warning')
+            return redirect(url_for('auth.login'))
+    return None
 
 
 @auth_bp.before_app_request
 def enforce_single_session():
+    # Only meaningful in SSO mode — local/none don't have a JWT iat or
+    # per-device cookie binding to enforce. Use the mode snapshot from
+    # apply_auth_mode so both hooks see the same value within one
+    # request even if the file mtime changes between them.
+    mode = getattr(g, 'auth_mode', None) or auth_mode.current_mode()
+    if mode != 'sso':
+        return None
     # Invalidate sessions when a new login (token refresh) occurs elsewhere
     if current_user.is_authenticated:
         meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
@@ -68,17 +261,76 @@ def enforce_single_session():
                     return redirect(url_for('auth.login'))
             except Exception:
                 pass
+    return None
 
-class User(UserMixin):
-    def __init__(self, id):
-        self.id = id
+def _handle_local_login():
+    """Username/password sign-in for auth mode 'local'."""
+    if current_user.is_authenticated:
+        return redirect(url_for('home.index'))
+    raw_next = request.args.get('next') or request.form.get('next') or ''
+    next_url = raw_next if _is_safe_redirect(raw_next) else url_for('home.index')
+    if request.method == 'POST':
+        ip = _client_ip()
+        lockout = _local_login_check_lockout(ip)
+        if lockout is not None:
+            flash(
+                f'Too many failed attempts. Try again in {lockout} seconds.',
+                'danger',
+            )
+        elif not auth_mode.has_local_credential():
+            flash(
+                'No local credential is configured. Set one on the System '
+                'page before signing in.',
+                'danger',
+            )
+        else:
+            username = (request.form.get('username') or '').strip()
+            password = request.form.get('password') or ''
+            if username and password and auth_mode.verify_local_credential(username, password):
+                _local_login_record_success(ip)
+                # Wipe any prior session state (anonymous-mode marker,
+                # stale SSO bits, attacker-prestamped cookies) before
+                # binding the new identity. Defense-in-depth — Flask's
+                # default itsdangerous-signed cookies aren't classically
+                # session-fixable, but cookie-content carryover would
+                # leak old mode markers into the new session anyway.
+                session.clear()
+                login_user(User(username))
+                session.permanent = True
+                session['auth_mode'] = 'local'
+                current_app.logger.info(
+                    'local-auth login OK: user=%s ip=%s', username, ip
+                )
+                return redirect(next_url)
+            _local_login_record_failure(ip)
+            current_app.logger.warning(
+                'local-auth login FAILED: user=%r ip=%s', username, ip
+            )
+            flash('Invalid username or password.', 'danger')
+    return render_template(
+        'auth/login.html',
+        auth_mode='local',
+        local_credential_set=auth_mode.has_local_credential(),
+        next_url=next_url,
+        org=None,
+        login_url=None,
+        token_exists=False,
+        user_info=None,
+        locked=False,
+        login_id=None,
+    )
 
-@login_manager.user_loader
-def load_user(user_id):
-    return User(user_id)
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    mode = auth_mode.current_mode()
+    # In 'none' mode auth is disabled; the before_app_request hook has
+    # already logged in an anonymous user. Visiting /login explicitly
+    # should bounce home rather than render the (now-pointless) form.
+    if mode == 'none':
+        return redirect(url_for('home.index'))
+    if mode == 'local':
+        return _handle_local_login()
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
     # assign or preserve a unique login_id for this login flow
@@ -230,6 +482,7 @@ def login():
                         if isinstance(payload.get('iat'), (int, str)):
                             session['token_iat'] = payload.get('iat')
                         session['authenticated_via_SSO'] = True
+                        session['auth_mode'] = 'sso'
                         # persist org_id/subdomain and token metadata for UI display
                         org_path = current_app.config.get('BORDER0_ORG_PATH')
                         try:
@@ -253,6 +506,7 @@ def login():
     # Always require a fresh SSO flow on this device/browser
     return render_template(
         'auth/login.html',
+        auth_mode='sso',
         org=org,
         login_url=login_url,
         token_exists=False,
@@ -337,6 +591,7 @@ def login_callback():
                 if isinstance(payload.get('iat'), (int, str)):
                     session['token_iat'] = payload.get('iat')
                 session['authenticated_via_SSO'] = True
+                session['auth_mode'] = 'sso'
                 # Generate and bind a per-device ID
                 device_id = uuid.uuid4().hex
                 response = redirect(request.args.get('next') or url_for('home.index'))
@@ -415,6 +670,19 @@ def switch_user():
 @auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required
 def logout():
+    mode = auth_mode.current_mode()
+    # In 'none' mode there is nothing to log out of — the next request
+    # will just be auto-logged-in again by apply_auth_mode.
+    if mode == 'none':
+        flash('Authentication is disabled; logout has no effect.', 'info')
+        return redirect(url_for('home.index'))
+    # In 'local' mode there's no SSO token info to display; just clear
+    # the session and bounce back to /login.
+    if mode == 'local':
+        logout_user()
+        session.clear()
+        flash('You have been logged out.', 'info')
+        return redirect(url_for('auth.login'))
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
     token_exists = os.path.isfile(meta_file)
@@ -458,6 +726,103 @@ def system():
     """Handle system operations: show system page on GET; perform reboot, update checks, upgrade, or factory reset on POST."""
     if request.method == 'POST':
         action = request.form.get('action')
+        # Auth-mode toggle (radios + optional credential fields)
+        if action == 'set_auth_mode':
+            # In 'none' mode any LAN visitor is the synthetic anonymous
+            # user. Letting that identity mutate the auth mode (or set
+            # the local credential) would let an attacker on the trusted
+            # network lock the real operator out. To switch *out of*
+            # 'none', the operator has to either set BORDER0_WEBUI_AUTH_MODE
+            # in the systemd unit or remove /etc/border0/auth_mode.json
+            # by hand. Document this in the response.
+            if current_user.get_id() == ANONYMOUS_USER_ID:
+                flash(
+                    'Cannot change auth mode while authentication is '
+                    'disabled. Set BORDER0_WEBUI_AUTH_MODE in the '
+                    'border0-webui systemd unit, or remove '
+                    '/etc/border0/auth_mode.json, then restart the '
+                    'border0-webui service.',
+                    'danger',
+                )
+                return redirect(url_for('auth.system'))
+            if auth_mode.is_env_locked():
+                flash(
+                    f'Auth mode is locked by {auth_mode.ENV_VAR} env var.',
+                    'warning',
+                )
+                return redirect(url_for('auth.system'))
+            new_mode = (request.form.get('mode') or '').strip().lower()
+            if new_mode not in auth_mode.VALID_MODES:
+                flash('Invalid auth mode.', 'danger')
+                return redirect(url_for('auth.system'))
+            if new_mode == 'local':
+                username = (request.form.get('username') or '').strip()
+                password = request.form.get('password') or ''
+                confirm = request.form.get('password_confirm') or ''
+                if password or confirm or not auth_mode.has_local_credential():
+                    if password != confirm:
+                        flash('Passwords do not match.', 'danger')
+                        return redirect(url_for('auth.system'))
+                    if not username or len(password) < 8:
+                        flash(
+                            'Local mode requires a username and an 8+ '
+                            'character password.',
+                            'danger',
+                        )
+                        return redirect(url_for('auth.system'))
+                    try:
+                        auth_mode.save_local_credential(username, password)
+                    except ValueError as e:
+                        flash(f'Failed to save credential: {e}', 'danger')
+                        return redirect(url_for('auth.system'))
+            try:
+                auth_mode.save_mode(new_mode)
+            except (RuntimeError, ValueError) as e:
+                flash(str(e), 'danger')
+                return redirect(url_for('auth.system'))
+            current_app.logger.info(
+                'auth mode changed to %s by %s from %s',
+                new_mode, current_user.get_id(), _client_ip(),
+            )
+            # Force re-login under the new regime. The before-request hook
+            # would do this on the next request anyway, but doing it here
+            # gives a clean flash and saves a round-trip.
+            logout_user()
+            session.clear()
+            flash(
+                f'Authentication mode set to {new_mode}. Please sign in again.',
+                'success',
+            )
+            return redirect(url_for('auth.login'))
+        # Reset / change the local credential while staying in local mode.
+        if action == 'set_local_password':
+            if current_user.get_id() == ANONYMOUS_USER_ID:
+                flash(
+                    'Cannot set a local credential while authentication '
+                    'is disabled. Switch to a different mode first.',
+                    'danger',
+                )
+                return redirect(url_for('auth.system'))
+            if auth_mode.current_mode() != 'local':
+                flash('Local credential is only used in local auth mode.', 'warning')
+                return redirect(url_for('auth.system'))
+            username = (request.form.get('username') or '').strip()
+            password = request.form.get('password') or ''
+            confirm = request.form.get('password_confirm') or ''
+            if password != confirm:
+                flash('Passwords do not match.', 'danger')
+                return redirect(url_for('auth.system'))
+            try:
+                auth_mode.save_local_credential(username, password)
+            except ValueError as e:
+                flash(f'Failed to save credential: {e}', 'danger')
+                return redirect(url_for('auth.system'))
+            current_app.logger.info(
+                'local credential updated for user=%s by %s from %s',
+                username, current_user.get_id(), _client_ip(),
+            )
+            flash('Local credential updated.', 'success')
+            return redirect(url_for('auth.system'))
         # Reboot
         if action == 'reboot':
             try:
@@ -638,11 +1003,20 @@ def system():
     except Exception:
         ssh_keys = []
 
+    local_cred = auth_mode.load_local_credential() or {}
     return render_template(
         'auth/system.html',
         uptime=uptime_str,
         current_version=current_version,
         update_available=update_available,
         new_version=new_version,
-        ssh_keys=ssh_keys
+        ssh_keys=ssh_keys,
+        auth_mode_current=auth_mode.current_mode(),
+        auth_mode_file_value=auth_mode.file_mode(),
+        auth_mode_env_value=auth_mode.env_mode(),
+        auth_mode_env_locked=auth_mode.is_env_locked(),
+        auth_mode_env_var=auth_mode.ENV_VAR,
+        auth_mode_anonymous=(current_user.get_id() == ANONYMOUS_USER_ID),
+        local_credential_set=auth_mode.has_local_credential(),
+        local_credential_username=local_cred.get('username', ''),
     )
