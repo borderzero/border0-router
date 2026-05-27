@@ -1,3 +1,4 @@
+from urllib.parse import urlparse, urljoin
 from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app, jsonify, session, g
 from flask_login import login_user, logout_user, login_required, current_user, UserMixin
 from ...config import Config
@@ -55,6 +56,103 @@ def _cleanup_flow_dir(flow_home):
         shutil.rmtree(flow_home, ignore_errors=True)
     except Exception:
         pass
+
+
+# In-memory rate limit for local-auth POST /login. Per-IP sliding window.
+# After _LOCAL_LOGIN_MAX_ATTEMPTS failures inside _LOCAL_LOGIN_WINDOW
+# seconds, the IP is locked out for _LOCAL_LOGIN_LOCKOUT seconds.
+#
+# NOTE: keyed on the effective client IP per _client_ip(). If the webui
+# is ever fronted by a reverse proxy, wrap the WSGI app with
+# werkzeug.middleware.proxy_fix.ProxyFix so request.remote_addr reflects
+# the real client, otherwise the whole internet shares one bucket and
+# the lockout either DOSes legit users or does nothing.
+_local_login_failures = {}
+_local_login_lock = threading.Lock()
+_LOCAL_LOGIN_MAX_ATTEMPTS = 5
+_LOCAL_LOGIN_WINDOW = 60
+_LOCAL_LOGIN_LOCKOUT = 60
+_LOCAL_LOGIN_MAX_TRACKED_IPS = 4096  # FIFO cap on the failure dict
+
+
+def _client_ip():
+    """Best-effort identification of the requesting client.
+
+    Uses ProxyFix-rewritten request.remote_addr when available. A noisy
+    proxy without ProxyFix will degrade the lockout to per-proxy, which
+    is the documented expected behavior.
+    """
+    return request.remote_addr or 'unknown'
+
+
+def _local_login_evict_old(now):
+    """Drop tracked IPs whose entries are all outside the rate window.
+
+    Bounds the dict so a scanner hitting from many IPs can't balloon it.
+    Caller must hold _local_login_lock.
+    """
+    cutoff = now - max(_LOCAL_LOGIN_WINDOW, _LOCAL_LOGIN_LOCKOUT)
+    for ip in list(_local_login_failures.keys()):
+        attempts = _local_login_failures[ip]
+        if not attempts or attempts[-1] < cutoff:
+            del _local_login_failures[ip]
+    # Hard cap regardless: drop the oldest entries (by last attempt) until
+    # we're back under the limit.
+    if len(_local_login_failures) > _LOCAL_LOGIN_MAX_TRACKED_IPS:
+        ordered = sorted(
+            _local_login_failures.items(),
+            key=lambda kv: kv[1][-1] if kv[1] else 0,
+        )
+        excess = len(_local_login_failures) - _LOCAL_LOGIN_MAX_TRACKED_IPS
+        for ip, _ in ordered[:excess]:
+            _local_login_failures.pop(ip, None)
+
+
+def _local_login_check_lockout(ip):
+    """Return None if the IP may attempt login, else seconds until unlock."""
+    now = time.time()
+    with _local_login_lock:
+        _local_login_evict_old(now)
+        attempts = [t for t in _local_login_failures.get(ip, []) if t > now - _LOCAL_LOGIN_WINDOW]
+        if len(attempts) >= _LOCAL_LOGIN_MAX_ATTEMPTS:
+            wait = (attempts[0] + _LOCAL_LOGIN_LOCKOUT) - now
+            if wait > 0:
+                _local_login_failures[ip] = attempts
+                return int(wait) + 1
+            _local_login_failures.pop(ip, None)
+            return None
+        _local_login_failures[ip] = attempts
+        return None
+
+
+def _local_login_record_failure(ip):
+    now = time.time()
+    with _local_login_lock:
+        _local_login_evict_old(now)
+        attempts = [t for t in _local_login_failures.get(ip, []) if t > now - _LOCAL_LOGIN_WINDOW]
+        attempts.append(now)
+        _local_login_failures[ip] = attempts
+
+
+def _local_login_record_success(ip):
+    with _local_login_lock:
+        _local_login_failures.pop(ip, None)
+
+
+def _is_safe_redirect(target):
+    """Reject off-site / scheme-changing values for the post-login ``next``.
+
+    Only allow same-host targets (or relative paths) over the same scheme.
+    """
+    if not target:
+        return False
+    ref = urlparse(request.host_url)
+    test = urlparse(urljoin(request.host_url, target))
+    return (
+        test.scheme in ('http', 'https')
+        and ref.netloc == test.netloc
+    )
+
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -166,13 +264,74 @@ def enforce_single_session():
                 pass
     return None
 
+def _handle_local_login():
+    """Username/password sign-in for auth mode 'local'."""
+    if current_user.is_authenticated:
+        return redirect(url_for('home.index'))
+    raw_next = request.args.get('next') or request.form.get('next') or ''
+    next_url = raw_next if _is_safe_redirect(raw_next) else url_for('home.index')
+    if request.method == 'POST':
+        ip = _client_ip()
+        lockout = _local_login_check_lockout(ip)
+        if lockout is not None:
+            flash(
+                f'Too many failed attempts. Try again in {lockout} seconds.',
+                'danger',
+            )
+        elif not auth_mode.has_local_credential():
+            flash(
+                'No local credential is configured. Set one on the System '
+                'page before signing in.',
+                'danger',
+            )
+        else:
+            username = (request.form.get('username') or '').strip()
+            password = request.form.get('password') or ''
+            if username and password and auth_mode.verify_local_credential(username, password):
+                _local_login_record_success(ip)
+                # Wipe any prior session state (anonymous-mode marker,
+                # stale SSO bits, attacker-prestamped cookies) before
+                # binding the new identity. Defense-in-depth — Flask's
+                # default itsdangerous-signed cookies aren't classically
+                # session-fixable, but cookie-content carryover would
+                # leak old mode markers into the new session anyway.
+                session.clear()
+                login_user(User(username))
+                session.permanent = True
+                session['auth_mode'] = 'local'
+                current_app.logger.info(
+                    'local-auth login OK: user=%s ip=%s', username, ip
+                )
+                return redirect(next_url)
+            _local_login_record_failure(ip)
+            current_app.logger.warning(
+                'local-auth login FAILED: user=%r ip=%s', username, ip
+            )
+            flash('Invalid username or password.', 'danger')
+    return render_template(
+        'auth/login.html',
+        auth_mode='local',
+        local_credential_set=auth_mode.has_local_credential(),
+        next_url=next_url,
+        org=None,
+        login_url=None,
+        token_exists=False,
+        user_info=None,
+        locked=False,
+        login_id=None,
+    )
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    mode = auth_mode.current_mode()
     # In 'none' mode auth is disabled; the before_app_request hook has
     # already logged in an anonymous user. Visiting /login explicitly
-    # should bounce home rather than render the (now-pointless) SSO form.
-    if auth_mode.current_mode() == 'none':
+    # should bounce home rather than render the (now-pointless) form.
+    if mode == 'none':
         return redirect(url_for('home.index'))
+    if mode == 'local':
+        return _handle_local_login()
     if current_user.is_authenticated:
         return redirect(url_for('home.index'))
     # assign or preserve a unique login_id for this login flow
@@ -348,6 +507,7 @@ def login():
     # Always require a fresh SSO flow on this device/browser
     return render_template(
         'auth/login.html',
+        auth_mode='sso',
         org=org,
         login_url=login_url,
         token_exists=False,
@@ -511,11 +671,19 @@ def switch_user():
 @auth_bp.route('/logout', methods=['GET', 'POST'])
 @login_required
 def logout():
+    mode = auth_mode.current_mode()
     # In 'none' mode there is nothing to log out of — the next request
     # will just be auto-logged-in again by apply_auth_mode.
-    if auth_mode.current_mode() == 'none':
+    if mode == 'none':
         flash('Authentication is disabled; logout has no effect.', 'info')
         return redirect(url_for('home.index'))
+    # In 'local' mode there's no SSO token info to display; just clear
+    # the session and bounce back to /login.
+    if mode == 'local':
+        logout_user()
+        session.clear()
+        flash('You have been logged out.', 'info')
+        return redirect(url_for('auth.login'))
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
     meta_file = current_app.config.get('BORDER0_TOKEN_METADATA_PATH')
     token_exists = os.path.isfile(meta_file)
