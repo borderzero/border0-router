@@ -33,6 +33,11 @@ VALID_MODES = ('none', 'local', 'sso')
 DEFAULT_MODE = 'sso'
 ENV_VAR = 'BORDER0_WEBUI_AUTH_MODE'
 
+# The synthetic user id used in mode='none'. Lives here so other
+# blueprints (e.g. /vpn token mgmt) can refuse sensitive operations
+# from the anonymous identity without circular-importing auth.routes.
+ANONYMOUS_USER_ID = 'anonymous@local'
+
 # Pin the hash method so a werkzeug upgrade can't silently weaken it.
 # pbkdf2 is available wherever Python's hashlib is; scrypt would also be
 # fine but isn't universally compiled in.

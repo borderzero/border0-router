@@ -19,8 +19,7 @@ import tempfile
 import urllib.request
 from ...extensions import login_manager
 from ... import auth_mode
-
-ANONYMOUS_USER_ID = 'anonymous@local'
+from ...auth_mode import ANONYMOUS_USER_ID
 # Endpoints that must remain reachable even when the session is being
 # torn down by a mode change, so the user can finish the redirect chain
 # without bouncing in a loop.

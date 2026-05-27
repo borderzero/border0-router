@@ -136,7 +136,13 @@
             {% if client_token_info.expires_at %}{{ client_token_info.expires_at }}
             {% else %}<span class="text-muted">never</span>{% endif %}
           </p>
-          <p class="mb-0"><small class="text-muted">{{ client_token_info.path }} (mtime {{ client_token_info.mtime or 'n/a' }})</small></p>
+          <p class="mb-2"><small class="text-muted">{{ client_token_info.path }} (mtime {{ client_token_info.mtime or 'n/a' }})</small></p>
+          <form method="post" action="{{ url_for('vpn.token_download') }}" class="d-inline-block">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">
+              Download token
+            </button>
+          </form>
         </div>
       </div>
     </div>

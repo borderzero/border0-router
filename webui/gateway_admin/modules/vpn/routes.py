@@ -1,8 +1,11 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import (
+    Blueprint, Response, current_app, flash, redirect, render_template,
+    request, url_for,
+)
+from flask_login import current_user, login_required
 import json
 import base64
 import datetime
-from flask_login import login_required
 import os
 import subprocess
 import re
@@ -11,6 +14,7 @@ import signal
 import threading
 import yaml
 from ...config import Config
+from ...auth_mode import ANONYMOUS_USER_ID
 
 
 def _decode_jwt_payload(token_path):
@@ -119,6 +123,89 @@ def _load_device_state(state_path):
     }
 
 vpn_bp = Blueprint('vpn', __name__, url_prefix='/vpn')
+
+
+def _refuse_anonymous_credential_op(action_label):
+    """Block sensitive credential ops when the caller is the synthetic
+    anonymous user (mode='none'). Returns a redirect Response if the
+    op should be refused, else None.
+
+    Reasoning: even though the operator opted into 'none' mode for the
+    UI, the runtime CLI token is a bearer credential whose blast radius
+    extends well past the trusted LAN. Anyone on the LAN exfiltrating
+    it gets remote access. Require an authenticated identity (sso or
+    local) for token download / swap.
+    """
+    if current_user.get_id() == ANONYMOUS_USER_ID:
+        flash(
+            f'Cannot {action_label} while web UI authentication is '
+            'disabled. Switch to Border0 SSO or local user/password '
+            'on the System page first.',
+            'danger',
+        )
+        return redirect(url_for('vpn.index'))
+    return None
+
+
+def _read_token_no_follow(token_path):
+    """Read the token file refusing to follow symlinks. Mirrors the
+    hardening pattern from auth_mode._open_no_follow_read so a future
+    misconfiguration that points BORDER0_TOKEN_PATH at a group-writable
+    dir can't be turned into a symlink-swap read primitive.
+    """
+    import stat as _stat
+    fd = os.open(token_path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        st = os.fstat(fd)
+        if not _stat.S_ISREG(st.st_mode):
+            raise OSError(f'{token_path} is not a regular file')
+        with os.fdopen(fd, 'rb') as f:
+            return f.read()
+    except Exception:
+        os.close(fd)
+        raise
+
+
+@vpn_bp.route('/token/download', methods=['POST'])
+@login_required
+def token_download():
+    """Stream the on-disk Border0 client token as a file download.
+
+    POST (not GET) so link-prefetchers, unfurlers, and accidental clicks
+    don't drag credential bytes through caches and logs. Any
+    authenticated UI session may export the token — this matches the
+    existing upload-token surface; the app has no role/RBAC concept.
+    """
+    refusal = _refuse_anonymous_credential_op('download the client token')
+    if refusal is not None:
+        return refusal
+    token_path = Config.BORDER0_TOKEN_PATH
+    if not token_path or not os.path.isfile(token_path):
+        flash('No client token is currently on disk.', 'warning')
+        return redirect(url_for('vpn.index'))
+    try:
+        payload = _read_token_no_follow(token_path)
+    except OSError as e:
+        current_app.logger.warning(
+            'token_download: failed to read %s: %s', token_path, e
+        )
+        flash(f'Failed to read token file: {e}', 'danger')
+        return redirect(url_for('vpn.index'))
+    current_app.logger.info(
+        'token download: user=%s ip=%s bytes=%d',
+        current_user.get_id(), request.remote_addr or 'unknown', len(payload),
+    )
+    return Response(
+        payload,
+        mimetype='application/octet-stream',
+        headers={
+            'Content-Disposition': 'attachment; filename="client_token"',
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+            'Cross-Origin-Resource-Policy': 'same-origin',
+        },
+    )
+
 
 @vpn_bp.route('/', methods=['GET', 'POST'])
 @login_required
