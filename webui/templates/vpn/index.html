@@ -137,12 +137,79 @@
             {% else %}<span class="text-muted">never</span>{% endif %}
           </p>
           <p class="mb-2"><small class="text-muted">{{ client_token_info.path }} (mtime {{ client_token_info.mtime or 'n/a' }})</small></p>
-          <form method="post" action="{{ url_for('vpn.token_download') }}" class="d-inline-block">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-outline-secondary btn-sm">
-              Download token
+          <div class="d-flex gap-2">
+            <form method="post" action="{{ url_for('vpn.token_download') }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">
+                Download token
+              </button>
+            </form>
+            <button type="button" class="btn btn-outline-warning btn-sm"
+                    data-bs-toggle="collapse" data-bs-target="#token-replace-block"
+                    aria-expanded="false" aria-controls="token-replace-block">
+              Replace token
             </button>
-          </form>
+          </div>
+
+          <div id="token-replace-block" class="collapse mt-3">
+            <form method="post" action="{{ url_for('vpn.token_preview') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label for="new_token" class="form-label small">Paste the replacement JWT (service-account / E2E / user SSO token):</label>
+              <textarea class="form-control font-monospace" id="new_token" name="new_token"
+                        rows="4" autocomplete="off" spellcheck="false"
+                        placeholder="eyJhbGciOi..."></textarea>
+              <p class="text-muted small mb-2 mt-1">
+                Server-side validation runs before anything on disk changes.
+                The current org_id is <code>{{ current_org_id or 'unknown' }}</code>.
+              </p>
+              <button type="submit" class="btn btn-primary btn-sm">Validate &amp; preview</button>
+            </form>
+          </div>
+
+          {% if replacement_preview %}
+          <div class="alert alert-info mt-3">
+            <h6 class="mb-2">Pending replacement</h6>
+            <p class="mb-1"><strong>Identity:</strong> {{ replacement_preview.identity }}
+              <span class="badge bg-{{ 'info' if replacement_preview.kind == 'service_account' else ('primary' if replacement_preview.kind == 'user' else 'secondary') }} ms-2">
+                {{ {'service_account': 'Service Account', 'user': 'User SSO', 'unknown': 'Unknown'}[replacement_preview.kind] }}
+              </span>
+            </p>
+            {% if replacement_preview.org_subdomain %}
+              <p class="mb-1"><strong>Org:</strong> {{ replacement_preview.org_subdomain }}</p>
+            {% endif %}
+            <p class="mb-1"><strong>Org ID:</strong> <code>{{ replacement_preview.org_id }}</code></p>
+            {% if replacement_preview.issued_at %}
+              <p class="mb-1"><strong>Issued:</strong> {{ replacement_preview.issued_at }}</p>
+            {% endif %}
+            <p class="mb-1"><strong>Expires:</strong>
+              {% if replacement_preview.expires_at %}{{ replacement_preview.expires_at }}{% else %}<span class="text-muted">never</span>{% endif %}
+            </p>
+            {% if replacement_preview.warnings %}
+              <ul class="mb-2 text-warning small">
+                {% for w in replacement_preview.warnings %}<li>{{ w }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+            <form method="post" action="{{ url_for('vpn.token_apply') }}" class="d-inline-block"
+                  onsubmit="return confirm('Replace the current client token? border0-device will be restarted.');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="new_token" value="{{ replacement_preview.token }}">
+              {% if replacement_preview.warnings %}
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="override_org_mismatch"
+                         name="override_org_mismatch" value="yes" required>
+                  <label class="form-check-label small" for="override_org_mismatch">
+                    I understand the warnings above and want to apply anyway.
+                  </label>
+                </div>
+              {% endif %}
+              <button type="submit" class="btn btn-danger btn-sm">Confirm &amp; apply</button>
+            </form>
+            <form method="post" action="{{ url_for('vpn.token_cancel') }}" class="d-inline-block ms-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Cancel</button>
+            </form>
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>

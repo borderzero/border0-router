@@ -1,16 +1,19 @@
 from flask import (
     Blueprint, Response, current_app, flash, redirect, render_template,
-    request, url_for,
+    request, session, url_for,
 )
 from flask_login import current_user, login_required
 import json
 import base64
 import datetime
 import os
+import secrets
+import shutil
 import subprocess
 import re
 import time
 import signal
+import stat
 import threading
 import yaml
 from ...config import Config
@@ -205,6 +208,259 @@ def token_download():
             'Cross-Origin-Resource-Policy': 'same-origin',
         },
     )
+
+
+def _identity_from_payload(payload):
+    return (
+        payload.get('service_account')
+        or payload.get('user_email')
+        or payload.get('nickname')
+        or payload.get('sub')
+        or payload.get('user_id')
+        or 'unknown'
+    )
+
+
+def _kind_from_payload(payload):
+    if payload.get('service_account_id') or payload.get('service_account'):
+        return 'service_account'
+    if payload.get('user_email') or payload.get('sub'):
+        return 'user'
+    return 'unknown'
+
+
+def _read_current_org_id():
+    """Return the current device's org_id from /etc/border0/org, or None."""
+    try:
+        with open(Config.BORDER0_ORG_PATH) as f:
+            data = json.load(f)
+        return data.get('org_id')
+    except Exception:
+        return None
+
+
+# Cap on the size of the pasted JWT. Real Border0 tokens are well under
+# 1KB; a 8KB ceiling leaves room for unforeseen growth and stops a multi-MB
+# paste from being base64-decoded into RAM on the request thread.
+MAX_REPLACEMENT_TOKEN_BYTES = 8192
+
+# Serialize file swap + daemon restart so two concurrent operators can't
+# interleave writes and racing systemctl restarts.
+_token_swap_lock = threading.Lock()
+
+
+def _validate_replacement_token(jwt_str, current_org_id=None):
+    """Decode + validate a candidate client_token.
+
+    Returns (payload_or_None, errors_list, warnings_list). Errors block
+    the swap; warnings can be overridden by the operator (e.g. swapping
+    to a token for a different org is legal but suspicious).
+    """
+    errors = []
+    warnings = []
+    s = (jwt_str or '').strip()
+    if not s:
+        errors.append('No token provided.')
+        return None, errors, warnings
+    if len(s) > MAX_REPLACEMENT_TOKEN_BYTES:
+        errors.append(
+            'Token is unreasonably large ({} bytes; cap is {}).'.format(
+                len(s), MAX_REPLACEMENT_TOKEN_BYTES
+            )
+        )
+        return None, errors, warnings
+    parts = s.split('.')
+    if len(parts) != 3:
+        errors.append('Token does not look like a JWT (expected 3 dot-separated parts).')
+        return None, errors, warnings
+    try:
+        padding = '=' * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+    except Exception as e:
+        errors.append(f'Failed to decode JWT payload: {e}')
+        return None, errors, warnings
+    if not isinstance(payload, dict):
+        errors.append('JWT payload is not a JSON object.')
+        return None, errors, warnings
+    if not payload.get('org_id'):
+        errors.append('Token does not appear to be a Border0 token (no org_id).')
+        return None, errors, warnings
+    exp = payload.get('exp')
+    if isinstance(exp, (int, float)) and exp < time.time():
+        errors.append('Token has already expired.')
+    if current_org_id and payload.get('org_id') != current_org_id:
+        warnings.append(
+            'Token org_id ({}) does not match current device org_id ({}).'.format(
+                payload.get('org_id'), current_org_id
+            )
+        )
+    return payload, errors, warnings
+
+
+@vpn_bp.route('/token/preview', methods=['POST'])
+@login_required
+def token_preview():
+    """Validate a pasted replacement token and stash the preview."""
+    refusal = _refuse_anonymous_credential_op('preview a replacement token')
+    if refusal is not None:
+        return refusal
+    new_token = (request.form.get('new_token') or '').strip()
+    current_org_id = _read_current_org_id()
+    payload, errors, warnings = _validate_replacement_token(new_token, current_org_id)
+    if errors:
+        for e in errors:
+            flash(e, 'danger')
+        return redirect(url_for('vpn.index'))
+    session['token_replacement_preview'] = {
+        'token': new_token,
+        'identity': _identity_from_payload(payload),
+        'kind': _kind_from_payload(payload),
+        'org_id': payload.get('org_id'),
+        'org_subdomain': payload.get('org_subdomain'),
+        'expires_at': _ts_to_iso(payload.get('exp')),
+        'issued_at': _ts_to_iso(payload.get('iat')),
+        'warnings': warnings,
+    }
+    return redirect(url_for('vpn.index'))
+
+
+@vpn_bp.route('/token/cancel', methods=['POST'])
+@login_required
+def token_cancel():
+    """Discard the pending replacement-token preview."""
+    session.pop('token_replacement_preview', None)
+    return redirect(url_for('vpn.index'))
+
+
+@vpn_bp.route('/token/apply', methods=['POST'])
+@login_required
+def token_apply():
+    """Atomically replace /root/.border0/client_token + restart daemon."""
+    refusal = _refuse_anonymous_credential_op('replace the client token')
+    if refusal is not None:
+        return refusal
+    new_token = (request.form.get('new_token') or '').strip()
+    override = request.form.get('override_org_mismatch') == 'yes'
+    current_org_id = _read_current_org_id()
+    payload, errors, warnings = _validate_replacement_token(new_token, current_org_id)
+    if errors:
+        for e in errors:
+            flash(e, 'danger')
+        return redirect(url_for('vpn.index'))
+    if warnings and not override:
+        flash(
+            ' '.join(warnings) +
+            ' Re-submit with the override checkbox to apply anyway.',
+            'warning',
+        )
+        return redirect(url_for('vpn.index'))
+
+    token_path = Config.BORDER0_TOKEN_PATH
+    if not token_path:
+        flash('BORDER0_TOKEN_PATH is not configured.', 'danger')
+        return redirect(url_for('vpn.index'))
+    # Refuse to operate on a symlinked destination — even though
+    # os.replace would atomically replace the symlink itself (not write
+    # through it), we'd rather surface the unusual state than silently
+    # detach whatever was set up there.
+    if os.path.islink(token_path):
+        flash(
+            f'{token_path} is a symlink; refusing to swap. Remove the '
+            'symlink (and any stale target) before retrying.',
+            'danger',
+        )
+        return redirect(url_for('vpn.index'))
+
+    # Record the identity we're about to replace, for the audit log.
+    old_identity = None
+    prior = _decode_jwt_payload(token_path) if os.path.isfile(token_path) else None
+    if prior:
+        old_identity = _identity_from_payload(prior)
+
+    backup_path = '{}.bak.{}'.format(token_path, int(time.time()))
+    tmp_path = '{}.tmp.{}.{}'.format(token_path, os.getpid(), secrets.token_hex(4))
+    backed_up = False
+    restart_failed_reason = None
+    with _token_swap_lock:
+        try:
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            # Snapshot the old token (if any) so we can roll back on
+            # failure. Tighten the backup perms before copying contents.
+            if os.path.isfile(token_path) and not os.path.islink(token_path):
+                shutil.copy2(token_path, backup_path)
+                try: os.chmod(backup_path, 0o600)
+                except OSError: pass
+                backed_up = True
+            # Write the new token atomically.
+            fd = os.open(
+                tmp_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    f.write(new_token)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception:
+                try: os.unlink(tmp_path)
+                except OSError: pass
+                raise
+            os.replace(tmp_path, token_path)
+            # Bounce the daemon so it picks up the new credential.
+            try:
+                rc = subprocess.run(
+                    ['systemctl', 'restart', 'border0-device'],
+                    check=False, timeout=15,
+                    capture_output=True, text=True,
+                )
+                if rc.returncode != 0:
+                    restart_failed_reason = (rc.stderr or rc.stdout or '').strip() or f'exit code {rc.returncode}'
+            except Exception as e:
+                restart_failed_reason = str(e)
+        except Exception as e:
+            # Roll back to the backup if we have one.
+            if backed_up:
+                try:
+                    shutil.move(backup_path, token_path)
+                    backed_up = False
+                except Exception:
+                    pass
+            current_app.logger.warning('token_apply failed: %s', e)
+            flash(f'Failed to apply replacement token: {e}', 'danger')
+            return redirect(url_for('vpn.index'))
+        finally:
+            # Always try to clean up the backup once we're done — keeps
+            # the dir tidy and stops backup files accumulating.
+            if backed_up:
+                try: os.remove(backup_path)
+                except OSError: pass
+
+    session.pop('token_replacement_preview', None)
+    current_app.logger.info(
+        'token replaced: user=%s ip=%s old_identity=%s new_kind=%s new_identity=%s',
+        current_user.get_id(),
+        request.remote_addr or 'unknown',
+        old_identity or 'none',
+        _kind_from_payload(payload),
+        _identity_from_payload(payload),
+    )
+    if restart_failed_reason:
+        current_app.logger.warning(
+            'token_apply: border0-device restart failed: %s',
+            restart_failed_reason,
+        )
+        flash(
+            'Token replaced, but restarting border0-device failed: '
+            f'{restart_failed_reason}. Check service logs.',
+            'warning',
+        )
+    else:
+        flash(
+            'Client token replaced. border0-device has been restarted.',
+            'success',
+        )
+    return redirect(url_for('vpn.index'))
 
 
 @vpn_bp.route('/', methods=['GET', 'POST'])
@@ -589,6 +845,7 @@ def index():
     client_token_info = _summarize_client_token(token_file)
     device_state_path = os.path.join(os.path.dirname(token_file or ''), 'device.state.yaml')
     device_state = _load_device_state(device_state_path)
+    replacement_preview = session.get('token_replacement_preview')
     return render_template(
         'vpn/index.html',
         org=org,
@@ -604,4 +861,6 @@ def index():
         user_info=user_info,
         client_token_info=client_token_info,
         device_state=device_state,
+        replacement_preview=replacement_preview,
+        current_org_id=_read_current_org_id(),
     )
