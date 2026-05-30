@@ -508,11 +508,14 @@ def apply(model, dry_run=False):
     # 4) reload units (the dnsmasq template instance may have changed)
     result['actions'].append(sctl('daemon-reload'))
 
-    # 5) bring up bridges + per-bridge dnsmasq
+    # 5) bring up bridges + per-bridge dnsmasq. The unit is hook-driven (not
+    # enabled), but restart it explicitly here too: an ifup on an already-up
+    # bridge is a no-op and won't re-run the post-up hook, so a DHCP-only change
+    # would otherwise be missed.
     for lan in _lans(model):
         name = lan['name']
-        result['actions'].append(sctl('enable', 'border0-dnsmasq@%s' % name))
         result['actions'].append(_run(['ifup', name]))
+        result['actions'].append(sctl('restart', 'border0-dnsmasq@%s' % name))
 
     # 6) start AP wlans
     for wlan in sorted(new_ap_wlans):

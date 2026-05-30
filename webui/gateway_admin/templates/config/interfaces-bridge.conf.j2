@@ -2,7 +2,6 @@
 auto {{ name }}
 iface {{ name }} inet static
     bridge_ports{% if eth_members %}{% for m in eth_members %} {{ m }}{% endfor %}{% else %} none{% endif %}
-
     bridge_stp {{ 'on' if stp else 'off' }}
     bridge_fd 0
     bridge_maxwait 0
@@ -10,6 +9,6 @@ iface {{ name }} inet static
     netmask {{ netmask }}
     broadcast {{ broadcast }}
     pre-up /usr/sbin/rfkill unblock wlan
-    post-up /usr/bin/systemctl restart border0-dnsmasq@{{ name }}.service
+    post-up /usr/bin/systemctl --no-block restart border0-dnsmasq@{{ name }}.service
     post-up /etc/border0/firewall.sh apply
-    post-down /usr/bin/systemctl stop border0-dnsmasq@{{ name }}.service
+    post-down /usr/bin/systemctl --no-block stop border0-dnsmasq@{{ name }}.service

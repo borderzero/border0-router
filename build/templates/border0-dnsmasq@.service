@@ -1,11 +1,11 @@
 [Unit]
 Description=Border0 dnsmasq for %i
-After=network-online.target
+# Driven by the bridge's ifup hook (--no-block), not multi-user.target — so NO
+# network-online dependency: that loops back through networking.service and
+# deadlocks boot (ifup waits on systemctl waits on networking.service).
+After=network.target
 
 [Service]
 Type=simple
 ExecStart=/usr/sbin/dnsmasq -k --conf-file=/etc/dnsmasq.d/border0-%i.conf
 Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
