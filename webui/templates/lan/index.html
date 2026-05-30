@@ -162,6 +162,15 @@
                   </select>
                 </div>
                 <div class="mb-3">
+                  <label for="channel-{{ iface.name }}" class="form-label">Channel</label>
+                  <select class="form-select" id="channel-{{ iface.name }}" name="channel" required>
+                    {% for ch in (channels_5g if iface.hw_mode == 'a' else channels_2g) %}
+                      <option value="{{ ch }}" {% if iface.channel == ch %}selected{% endif %}>{{ ch }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="form-text">Channel list follows the selected band. 5 GHz is non-DFS only.</div>
+                </div>
+                <div class="mb-3">
                   <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
                   <div class="input-group">
                     <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase" value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
@@ -223,6 +232,10 @@
   });
   </script>
   <script>
+    var WIFI_CHANNELS = {
+      g: {{ channels_2g | tojson }},
+      a: {{ channels_5g | tojson }}
+    };
     document.addEventListener('DOMContentLoaded', function() {
       {% for iface in wifi_interfaces %}
       (function() {
@@ -231,6 +244,22 @@
         if (toggleBtn && passwordInput) {
           toggleBtn.addEventListener('click', function() {
             passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+          });
+        }
+        // Repopulate the channel dropdown to match the selected band, keeping
+        // the current selection where it's still valid (else pick the first).
+        var modeSel = document.getElementById('hw_mode-{{ iface.name }}');
+        var chanSel = document.getElementById('channel-{{ iface.name }}');
+        if (modeSel && chanSel) {
+          modeSel.addEventListener('change', function() {
+            var prev = chanSel.value;
+            var channels = WIFI_CHANNELS[modeSel.value] || [];
+            chanSel.innerHTML = '';
+            channels.forEach(function(ch) {
+              var opt = new Option(ch, ch);
+              if (ch === prev) { opt.selected = true; }
+              chanSel.add(opt);
+            });
           });
         }
       })();
