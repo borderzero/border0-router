@@ -1,129 +1,201 @@
 {% extends 'base.html' %}
 {% block content %}
 <h1>Wi-Fi Configuration</h1>
-<div class="mb-4">
-  <p class="text-muted">Use the tabs below to view general Wi-Fi interface summary or configure individual interfaces.</p>
-</div>
-{% if interfaces %}
-<ul class="nav nav-tabs" id="wifiTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="tab-general" data-bs-toggle="tab" data-bs-target="#content-general" type="button" role="tab" aria-controls="content-general" aria-selected="true">General</button>
-  </li>
-  {% for iface in interfaces %}
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="tab-{{ iface.name }}" data-bs-toggle="tab" data-bs-target="#content-{{ iface.name }}" type="button" role="tab" aria-controls="content-{{ iface.name }}" aria-selected="false">{{ iface.name }}</button>
-  </li>
-  {% endfor %}
-</ul>
-<div class="tab-content mt-3" id="wifiTabsContent">
-  <div class="tab-pane fade show active" id="content-general" role="tabpanel" aria-labelledby="tab-general">
-    <div class="card mb-4">
-      <div class="card-body">
-        <h5 class="card-title">All Interfaces Summary</h5>
-        <table class="table table-sm">
-          <thead><tr><th>Interface</th><th>Enabled</th><th>Active</th><th>Actions</th></tr></thead>
-          <tbody>
-            {% for iface in interfaces %}
-            <tr>
-              <td>{{ iface.name }}</td>
-              <td><span class="fw-bold {{ 'text-success' if iface.service_enabled else 'text-danger' }}">{{ 'Enabled' if iface.service_enabled else 'Disabled' }}</span></td>
-              <td><span class="fw-bold {{ 'text-success' if iface.service_active else 'text-danger' }}">{{ 'Active' if iface.service_active else 'Inactive' }}</span></td>
-              <td>
-                <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}" class="d-inline">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  {% if iface.service_enabled %}
-                    <button type="submit" name="action" value="disable" class="btn btn-warning btn-sm" formnovalidate>Disable</button>
-                  {% else %}
-                    <button type="submit" name="action" value="enable" class="btn btn-success btn-sm" formnovalidate>Enable</button>
-                  {% endif %}
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-  {% for iface in interfaces %}
-  <div class="tab-pane fade" id="content-{{ iface.name }}" role="tabpanel" aria-labelledby="tab-{{ iface.name }}">
-    <div class="row">
-      <div class="col-md-6">
-        <div class="card mb-4">
-          <div class="card-header">Statistics</div>
-          <div class="card-body">
-            <pre class="small" style="white-space: pre-wrap; word-wrap: break-word;">{{ iface.stats }}</pre>
-          </div>
-        </div>
-      </div>
-      <div class="col-md-6">
-        <div class="card mb-4">
-          <div class="card-header">Configuration</div>
-          <div class="card-body">
-            <form method="post" action="{{ url_for('wifi.save', iface=iface.name) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <div class="mb-3">
-                <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
-                <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid" value="{{ iface.ssid }}" required maxlength="32">
-                <div class="form-text">Network name (SSID) broadcast by this interface.</div>
-              </div>
-              <div class="mb-3">
-                <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
-                <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
-                  {% for mode in hw_modes %}
-                    <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ hw_mode_labels[mode] }}</option>
-                  {% endfor %}
-                </select>
-                <div class="form-text">Select the Wi-Fi mode; labels include typical speed options.</div>
-              </div>
-              <div class="mb-3">
-                <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
-                <div class="input-group">
-                  <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase" value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
-                  <button class="btn btn-outline-secondary" type="button" id="toggle-pass-{{ iface.name }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                      <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  </button>
-                </div>
-                <div class="form-text">Passphrase must be 8-63 characters long to secure your network.</div>
-              </div>
-              <div class="d-flex align-items-center">
-                <button type="submit" name="action" value="save" class="btn btn-primary me-2">Save Settings</button>
-                {% if iface.service_enabled %}
-                  <button type="submit" name="action" value="disable" class="btn btn-warning me-2" formnovalidate>Disable Service</button>
-                {% else %}
-                  <button type="submit" name="action" value="enable" class="btn btn-success me-2" formnovalidate>Enable Service</button>
-                {% endif %}
-                <button type="submit" name="action" value="restart" class="btn btn-secondary" formnovalidate>Restart Service</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
+<p class="text-muted">One card per radio. Pick a role: broadcast an access point, join an upstream network as a client, or turn the radio off.</p>
+
+{% if not radios %}
+  <p>No Wi-Fi radios found.</p>
 {% else %}
-  <p>No Wi-Fi interfaces found.</p>
+{% for r in radios %}
+{# the radio is "disruptive" if it serves the bridge the admin is connected through #}
+{% set disruptive = current_zone and current_zone == r.attached_bridge %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>{{ r.name }}</span>
+    <span class="small">
+      hostapd:
+      <span class="fw-bold {{ 'text-success' if r.service.active else 'text-danger' }}">{{ 'active' if r.service.active else 'inactive' }}</span>
+      / <span class="fw-bold {{ 'text-success' if r.service.enabled else 'text-danger' }}">{{ 'enabled' if r.service.enabled else 'disabled' }}</span>
+    </span>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('wifi.save', iface=r.name) }}" id="form-{{ r.name }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="mb-3">
+        <label for="mode-{{ r.name }}" class="form-label">Mode</label>
+        <select class="form-select" id="mode-{{ r.name }}" name="mode" data-iface="{{ r.name }}">
+          <option value="ap" {% if r.mode == 'ap' %}selected{% endif %}>Access Point (AP)</option>
+          <option value="client" {% if r.mode == 'client' %}selected{% endif %}>Client (join upstream)</option>
+          <option value="off" {% if r.mode == 'off' %}selected{% endif %}>Off</option>
+        </select>
+      </div>
+
+      {# --- AP block --- #}
+      <div class="wifi-ap-block" id="ap-block-{{ r.name }}">
+        <div class="mb-3">
+          <label for="ssid-{{ r.name }}" class="form-label">SSID</label>
+          <input type="text" class="form-control" id="ssid-{{ r.name }}" name="ssid" value="{{ r.ssid }}" maxlength="32">
+        </div>
+        <div class="mb-3">
+          <label for="band-{{ r.name }}" class="form-label">Band</label>
+          <select class="form-select" id="band-{{ r.name }}" name="band">
+            {% for b, label in band_labels.items() %}
+              <option value="{{ b }}" {% if r.band == b %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label for="channel-{{ r.name }}" class="form-label">Channel</label>
+          <select class="form-select" id="channel-{{ r.name }}" name="channel">
+            {% for ch in (channels_5g if r.band == 'a' else channels_2g) %}
+              <option value="{{ ch }}" {% if r.channel == ch %}selected{% endif %}>{{ ch }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Channel list follows the band. 5 GHz is non-DFS only.</div>
+        </div>
+        <div class="mb-3">
+          <label for="psk-{{ r.name }}" class="form-label">WPA2 Passphrase</label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="psk-{{ r.name }}" name="psk" value="{{ r.psk }}" minlength="8" maxlength="63">
+            <button class="btn btn-outline-secondary toggle-pass" type="button" data-target="psk-{{ r.name }}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="bridge-{{ r.name }}" class="form-label">Attach to LAN bridge</label>
+          <select class="form-select" id="bridge-{{ r.name }}" name="target_bridge">
+            <option value="" disabled {% if not r.attached_bridge %}selected{% endif %}>-- pick a bridge --</option>
+            {% for b in bridges %}
+              <option value="{{ b }}" {% if r.attached_bridge == b %}selected{% endif %}>{{ b }}</option>
+            {% endfor %}
+          </select>
+          {% if not bridges %}<div class="form-text text-danger">No LAN bridges exist yet — create one on the LAN page first.</div>{% endif %}
+        </div>
+      </div>
+
+      {# --- CLIENT block --- #}
+      <div class="wifi-client-block" id="client-block-{{ r.name }}">
+        <div class="mb-3">
+          <label for="client-ssid-{{ r.name }}" class="form-label">Upstream SSID</label>
+          <div class="input-group">
+            <input type="text" class="form-control" id="client-ssid-{{ r.name }}" name="client_ssid" value="{{ r.client_ssid }}" maxlength="32">
+            <button class="btn btn-outline-secondary scan-btn" type="button" data-iface="{{ r.name }}">Scan</button>
+          </div>
+          <div class="form-text scan-result" id="scan-result-{{ r.name }}"></div>
+        </div>
+        <div class="mb-3">
+          <label for="client-psk-{{ r.name }}" class="form-label">Upstream Passphrase</label>
+          <div class="input-group">
+            <input type="password" class="form-control" id="client-psk-{{ r.name }}" name="client_psk" value="{{ r.client_psk }}" minlength="8" maxlength="63">
+            <button class="btn btn-outline-secondary toggle-pass" type="button" data-target="client-psk-{{ r.name }}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {% if disruptive %}
+      <div class="alert alert-warning py-2">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="confirm_disruptive" value="1" id="confirm-{{ r.name }}">
+          <label class="form-check-label" for="confirm-{{ r.name }}">
+            {{ r.name }} serves the bridge '{{ r.attached_bridge }}' you're connected through — changing it may drop your connection. Tick to confirm.
+          </label>
+        </div>
+      </div>
+      {% endif %}
+
+      <button type="submit" class="btn btn-primary">Save {{ r.name }}</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
 {% endif %}
 {% endblock %}
+
 {% block scripts %}
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      {% for iface in interfaces %}
-      (function() {
-        var toggleBtn = document.getElementById('toggle-pass-{{ iface.name }}');
-        var passwordInput = document.getElementById('passphrase-{{ iface.name }}');
-        if (toggleBtn && passwordInput) {
-          toggleBtn.addEventListener('click', function() {
-            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
-          });
-        }
-      })();
-      {% endfor %}
+<script>
+  var WIFI_CHANNELS = {
+    g: {{ channels_2g | tojson }},
+    a: {{ channels_5g | tojson }}
+  };
+
+  // Show only the block matching the selected mode (off hides both).
+  function applyMode(iface) {
+    var mode = document.getElementById('mode-' + iface).value;
+    var ap = document.getElementById('ap-block-' + iface);
+    var client = document.getElementById('client-block-' + iface);
+    if (ap) ap.style.display = (mode === 'ap') ? '' : 'none';
+    if (client) client.style.display = (mode === 'client') ? '' : 'none';
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    // password show/hide toggles
+    document.querySelectorAll('.toggle-pass').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var inp = document.getElementById(btn.dataset.target);
+        if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+      });
     });
-  </script>
+
+    // mode select drives which block is visible
+    document.querySelectorAll('select[id^="mode-"]').forEach(function(sel) {
+      var iface = sel.dataset.iface;
+      sel.addEventListener('change', function() { applyMode(iface); });
+      applyMode(iface);
+    });
+
+    // band -> channel repopulation, keeping the current pick where still valid
+    document.querySelectorAll('select[id^="band-"]').forEach(function(bandSel) {
+      var iface = bandSel.id.slice('band-'.length);
+      var chanSel = document.getElementById('channel-' + iface);
+      if (!chanSel) return;
+      bandSel.addEventListener('change', function() {
+        var prev = chanSel.value;
+        var channels = WIFI_CHANNELS[bandSel.value] || [];
+        chanSel.innerHTML = '';
+        channels.forEach(function(ch) {
+          var opt = new Option(ch, ch);
+          if (ch === prev) { opt.selected = true; }
+          chanSel.add(opt);
+        });
+      });
+    });
+
+    // scan for nearby APs, dump the result under the upstream SSID field
+    document.querySelectorAll('.scan-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var iface = btn.dataset.iface;
+        var out = document.getElementById('scan-result-' + iface);
+        var ssidInput = document.getElementById('client-ssid-' + iface);
+        var token = document.querySelector('#form-' + iface + ' input[name="csrf_token"]').value;
+        btn.disabled = true;
+        out.textContent = 'Scanning...';
+        fetch('{{ url_for('wifi.index') }}' + iface + '/scan', {
+          method: 'POST',
+          headers: {'X-CSRFToken': token}
+        }).then(function(r) { return r.json(); }).then(function(nets) {
+          btn.disabled = false;
+          if (!nets.length) { out.textContent = 'No networks found.'; return; }
+          out.innerHTML = '';
+          nets.forEach(function(n) {
+            if (!n.ssid) return;
+            var a = document.createElement('a');
+            a.href = '#';
+            a.className = 'd-block';
+            a.textContent = n.ssid + '  (' + (n.signal || '?') + ' dBm, ' + n.security + ')';
+            a.addEventListener('click', function(e) { e.preventDefault(); ssidInput.value = n.ssid; });
+            out.appendChild(a);
+          });
+        }).catch(function() { btn.disabled = false; out.textContent = 'Scan failed.'; });
+      });
+    });
+  });
+</script>
 {% endblock %}

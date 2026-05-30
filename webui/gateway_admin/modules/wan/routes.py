@@ -1,196 +1,177 @@
-import os
-import re
-import subprocess
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app
+"""WAN zone admin page.
+
+WAN is a logical zone, not a bridge: a set of candidate uplink interfaces of
+which exactly ONE (wan.active) carries the live default route; the rest are
+defined but stay down. We manage the eth* candidates here. Client-mode wlans
+land in wan.interfaces courtesy of the WiFi page — we display and let them be
+chosen as active, but we never create or mutate them.
+
+All persistence goes through netconfig: load() the model, rebuild cfg['wan']
+from the form, validate(), then apply() (which applies AND saves). Never save()
+before apply() or teardown can't see the delta.
+"""
+
+import ipaddress
+
+from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask_login import login_required
-import socket
-import psutil
-# Default static configuration defaults
-DEFAULT_STATIC_CFG = {
-    'address': '192.168.123.1',
-    'netmask': '255.255.255.0',
-    'gateway': '192.168.123.1',
-    'dns-nameservers': '208.67.220.220 8.8.8.8 1.1.1.1',
-    'broadcast': '192.168.123.255'
-}
+
+from ... import netconfig
+from ... import netutils
+
 wan_bp = Blueprint('wan', __name__, url_prefix='/wan')
+
+# Static-field defaults for a fresh row. Nothing clever — just so the inputs
+# aren't blank when an admin flips an iface to static for the first time.
+DEFAULT_STATIC = {
+    'address': '',
+    'netmask': '255.255.255.0',
+    'gateway': '',
+    'dns': '8.8.8.8 1.1.1.1',
+}
+
+
+def _client_wlans(model):
+    """wlan ifaces the WiFi page runs in client mode — ours to display, not edit."""
+    wifi = model.get('wifi') or {}
+    return [w for w, c in wifi.items() if (c or {}).get('mode') == 'client']
+
+
+def _claimed_lan_eth(model):
+    """eth ifaces already swallowed by a LAN bridge — keep them out of WAN."""
+    claimed = set()
+    for lan in model.get('lans') or []:
+        members = (lan.get('members') or {}).get('eth') or []
+        claimed.update(members)
+    return claimed
+
+
+def _wan_entry_map(model):
+    """iface -> its existing wan.interfaces entry, for prefilling the form."""
+    wan = model.get('wan') or {}
+    return {e['iface']: e for e in wan.get('interfaces', []) if e.get('iface')}
+
+
+def _valid_ip(value):
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except Exception:
+        return False
+
 
 @wan_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
-    # Discover WAN interfaces: only ethX or wlanX, excluding selected LAN interface
-    net_dir = '/sys/class/net'
-    interfaces = []
-    # Read current LAN interface to exclude it from WAN options
-    lan_iface_path = current_app.config.get('LAN_IFACE_PATH')
-    lan_iface_to_exclude = None
-    try:
-        with open(lan_iface_path) as f:
-            lan_iface_to_exclude = f.read().strip()
-    except Exception:
-        lan_iface_to_exclude = None
-    if os.path.isdir(net_dir):
-        for iface in sorted(os.listdir(net_dir)):
-            # only physical ethernet or wlan
-            if not re.match(r'^(eth|wlan)\d+$', iface):
-                continue
-            # skip LAN interface
-            if iface == lan_iface_to_exclude:
-                continue
-            interfaces.append(iface)
-
-    # Load current WAN interface selection
-    current_iface = None
-    mode = 'dhcp'
-    # Prepare static config with sensible defaults
-    static_cfg = DEFAULT_STATIC_CFG.copy()
-    wan_iface_path = current_app.config.get('WAN_IFACE_PATH')
-    try:
-        with open(wan_iface_path) as f:
-            current_iface = f.read().strip()
-    except Exception:
-        current_iface = None
+    model = netconfig.load()
 
     if request.method == 'POST':
-        action = request.form.get('action')
-        iface = request.form.get('iface')
-        if action == 'restart':
-            if iface not in interfaces:
-                flash('Invalid interface selected', 'warning')
+        return _save(model)
+
+    # --- GET: build the candidate rows ---
+    wan = model.get('wan') or {}
+    active = wan.get('active')
+    entries = _wan_entry_map(model)
+    claimed = _claimed_lan_eth(model)
+    client_wlans = set(_client_wlans(model))
+
+    # eth* candidates that aren't pinned to a LAN bridge, plus any client wlans
+    # already parked in the zone (the WiFi page owns those).
+    candidates = [i for i in netutils.list_interfaces(('eth',)) if i not in claimed]
+    candidates += [w for w in client_wlans if w in entries]
+
+    rows = []
+    for iface in candidates:
+        entry = entries.get(iface, {})
+        is_client = iface in client_wlans
+        mode = entry.get('mode', 'dhcp')
+        rows.append({
+            'iface': iface,
+            'in_zone': iface in entries,
+            'is_client': is_client,
+            'mode': mode,
+            'address': entry.get('address', DEFAULT_STATIC['address']),
+            'netmask': entry.get('netmask', DEFAULT_STATIC['netmask']),
+            'gateway': entry.get('gateway', DEFAULT_STATIC['gateway']),
+            'dns': entry.get('dns', DEFAULT_STATIC['dns']),
+            'status': netutils.iface_status(iface),
+        })
+
+    return render_template('wan/index.html', rows=rows, active=active)
+
+
+def _save(old_model):
+    """Rebuild cfg['wan'] from the form on a fresh load, validate, apply (PRG)."""
+    cfg = netconfig.load()
+    cfg.setdefault('wan', {})
+
+    client_wlans = set(_client_wlans(cfg))
+    claimed = _claimed_lan_eth(cfg)
+    old_entries = _wan_entry_map(cfg)
+
+    # Preserve client-wlan entries verbatim — the WiFi page owns those rows; we
+    # must not drop them just because this form doesn't carry their static guts.
+    interfaces = [old_entries[w] for w in client_wlans if w in old_entries]
+
+    # Collect the checked eth ifaces with their mode/static fields.
+    for iface in request.form.getlist('in_zone'):
+        if iface in client_wlans or iface in claimed:
+            continue  # not ours to write here
+        mode = request.form.get(f'mode_{iface}', 'dhcp')
+        if mode not in ('dhcp', 'static'):
+            flash(f'{iface}: invalid mode {mode!r}', 'danger')
+            return redirect(url_for('wan.index'))
+        entry = {'iface': iface, 'mode': mode}
+        if mode == 'static':
+            entry['address'] = request.form.get(f'address_{iface}', '').strip()
+            entry['netmask'] = request.form.get(f'netmask_{iface}', '').strip()
+            entry['gateway'] = request.form.get(f'gateway_{iface}', '').strip()
+            entry['dns'] = request.form.get(f'dns_{iface}', '').strip()
+            # Cheap field validation; netconfig.validate handles cross-checks.
+            for label, val in (('address', entry['address']),
+                               ('gateway', entry['gateway'])):
+                if not _valid_ip(val):
+                    flash(f'{iface}: invalid {label} {val!r}', 'danger')
+                    return redirect(url_for('wan.index'))
+            if not _valid_ip(entry['netmask']):
+                flash(f'{iface}: invalid netmask {entry["netmask"]!r}', 'danger')
                 return redirect(url_for('wan.index'))
-            try:
-                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
-                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
-                flash(f'WAN interface {iface} restarted', 'success')
-            except Exception as e:
-                flash(f'Failed to restart WAN interface: {e}', 'danger')
-            return redirect(url_for('wan.index'))
-        if iface not in interfaces:
-            flash('Invalid interface selected', 'warning')
-            return redirect(url_for('wan.index'))
-        m = request.form.get('mode')
-        if m not in ['dhcp', 'static']:
-            flash('Invalid mode selected', 'warning')
-            return redirect(url_for('wan.index'))
+        interfaces.append(entry)
 
-        # Build /etc/network/interfaces.d/<iface>.conf
-        cfg_dir = '/etc/network/interfaces.d'
-        try:
-            os.makedirs(cfg_dir, exist_ok=True)
-        except Exception:
-            pass
-        cfg_file = os.path.join(cfg_dir, f'{iface}.conf')
-        # Render network config via Jinja template
-        template_name = 'config/interfaces-dhcp.conf.j2' if m == 'dhcp' else 'config/interfaces-static.conf.j2'
-        # Prepare context
-        context = {'iface': iface}
-        if m == 'static':
-            address = request.form.get('address', '').strip()
-            netmask = request.form.get('netmask', '').strip()
-            gateway = request.form.get('gateway', '').strip()
-            dns = request.form.get('dns', '').strip()
-            broadcast = request.form.get('broadcast', '').strip()
-            context.update({
-                'address': address,
-                'netmask': netmask,
-                'gateway': gateway,
-                'dns': dns,
-                'broadcast': broadcast
-            })
-        try:
-            content = render_template(template_name, **context)
-            with open(cfg_file, 'w') as f:
-                f.write(content)
-        except Exception as e:
-            flash(f'Failed to write config: {e}', 'danger')
-            return redirect(url_for('wan.index'))
+    active = request.form.get('active') or None
+    cfg['wan']['interfaces'] = interfaces
+    cfg['wan']['active'] = active
 
-        # Persist the selected WAN interface
-        try:
-            os.makedirs(os.path.dirname(wan_iface_path), exist_ok=True)
-            with open(wan_iface_path, 'w') as f:
-                f.write(iface + '\n')
-        except Exception as e:
-            flash(f'Failed to save WAN interface selection: {e}', 'danger')
-            return redirect(url_for('wan.index'))
-
-        flash(f'WAN interface {iface} configured ({m})', 'success')
-        # Automatically restart the WAN interface
-        try:
-            subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
-            subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
-            flash(f'WAN interface {iface} restarted', 'success')
-        except Exception as e:
-            flash(f'Failed to restart WAN interface: {e}', 'danger')
+    zone_ifaces = [e['iface'] for e in interfaces]
+    if active is not None and active not in zone_ifaces:
+        flash(f'Active uplink {active!r} is not one of the WAN interfaces', 'danger')
         return redirect(url_for('wan.index'))
 
-    # On GET, if static mode, load existing static fields
-    if current_iface and current_iface in interfaces:
-        cfg_file = os.path.join('/etc/network/interfaces.d', f'{current_iface}.conf')
-        if os.path.isfile(cfg_file):
-            try:
-                text = open(cfg_file).read()
-                if re.search(rf'^iface {current_iface} inet static', text, re.M):
-                    mode = 'static'
-                    for key in ['address', 'netmask', 'gateway', 'dns-nameservers', 'broadcast']:
-                        m2 = re.search(rf'^{key} (.+)', text, re.M)
-                        if m2:
-                            static_cfg[key] = m2.group(1).strip()
-            except Exception:
-                pass
+    # Lockout guard: if the admin reached us over the WAN zone and this change
+    # moves the active uplink, they're sawing off the branch they sit on. Make
+    # them tick the box first.
+    if netconfig.ingress_zone(request.remote_addr, old_model) == 'wan':
+        old_active = (old_model.get('wan') or {}).get('active')
+        if active != old_active and not request.form.get('confirm_disruptive'):
+            flash('Changing the active uplink may drop your connection (you are '
+                  'connected via WAN). Re-submit with "I understand" checked to '
+                  'proceed.', 'warning')
+            return redirect(url_for('wan.index'))
 
-    # Load current LAN interface selection for cross-page indicator
-    lan_iface = None
-    lan_iface_path = current_app.config.get('LAN_IFACE_PATH')
-    try:
-        with open(lan_iface_path) as f:
-            lan_iface = f.read().strip()
-    except Exception:
-        lan_iface = None
-    # Build interface information for display
-    iface_stats = psutil.net_if_stats()
-    iface_addrs = psutil.net_if_addrs()
-    interfaces_info = []
-    for iface in interfaces:
-        # Determine type: WiFi if wireless, else Ethernet
-        if os.path.isdir(f'/sys/class/net/{iface}/wireless'):
-            iface_type = 'WiFi'
-        else:
-            iface_type = 'Ethernet'
-        # Determine status: UP if interface is up, else no_carrier
-        is_up = iface_stats.get(iface).isup if iface in iface_stats else False
-        status = 'UP' if is_up else 'no_carrier'
-        # Get IPv4 address if available
-        ip_addr = 'none'
-        for addr in iface_addrs.get(iface, []):
-            if addr.family == socket.AF_INET:
-                ip_addr = addr.address
-                break
-        # Determine mode: static, dynamic, or unmanaged based on config file
-        cfg_file = os.path.join('/etc/network/interfaces.d', f'{iface}.conf')
-        mode_val = 'unmanaged'
-        if os.path.isfile(cfg_file):
-            try:
-                text = open(cfg_file).read()
-                if re.search(rf'^iface {re.escape(iface)} inet static', text, re.M):
-                    mode_val = 'static'
-                elif re.search(rf'^iface {re.escape(iface)} inet dhcp', text, re.M):
-                    mode_val = 'dynamic'
-            except Exception:
-                pass
-        interfaces_info.append({
-            'name': iface,
-            'type': iface_type,
-            'status': status,
-            'ip': ip_addr,
-            'mode': mode_val
-        })
-    return render_template(
-        'wan/index.html',
-        interfaces=interfaces,
-        current_iface=current_iface,
-        mode=mode,
-        static_cfg=static_cfg,
-        interfaces_info=interfaces_info,
-        lan_iface=lan_iface
-    )
+    errs = netconfig.validate(cfg)
+    fatal = [e for e in errs if not e.startswith('WARN')]
+    if fatal:
+        for e in fatal:
+            flash(e, 'danger')
+        return redirect(url_for('wan.index'))
+
+    result = netconfig.apply(cfg)
+    apply_fatal = [e for e in result.get('errors', []) if not e.startswith('WARN')]
+    if apply_fatal:
+        for e in apply_fatal:
+            flash(e, 'danger')
+    else:
+        for w in (e for e in result.get('errors', []) if e.startswith('WARN')):
+            flash(w, 'warning')
+        flash('WAN configuration applied', 'success')
+    return redirect(url_for('wan.index'))

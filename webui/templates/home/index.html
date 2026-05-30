@@ -80,53 +80,73 @@
   </div>
 </div>
 
-<div class="row row-cols-1 row-cols-md-3 g-4">
+<!-- WAN: all uplinks, active one badged -->
+<div class="row row-cols-1 g-4 mb-4">
   <div class="col">
     <div class="card h-100">
-      <div class="card-header">WAN</div>
+      <div class="card-header">WAN Uplinks</div>
       <div class="card-body">
-        {% if wan_info %}
-          <p>Interface: <strong>{{ wan_info.name }}</strong></p>
-          <p>Status: <strong>{{ wan_info.status }}</strong></p>
-          <p>IPv4: <strong>{{ wan_info.ipv4 or 'None' }}</strong></p>
-          <p>IPv6: <strong>{{ wan_info.ipv6 or 'None' }}</strong></p>
-          {% if wan_traffic %}<p>Traffic: Sent {{ wan_traffic.sent }}, Recv {{ wan_traffic.recv }}</p>{% endif %}
+        {% if active_no_carrier %}
+        <div class="alert alert-warning py-2">The active uplink has no carrier — no internet upstream.</div>
+        {% endif %}
+        {% if wan_ifaces %}
+          <table class="table table-sm mb-0 align-middle">
+            <thead><tr><th>Interface</th><th>Type</th><th>Status</th><th>IPv4</th><th>IPv6</th><th></th></tr></thead>
+            <tbody>
+            {% for w in wan_ifaces %}
+              <tr>
+                <td><strong>{{ w.name }}</strong></td>
+                <td>{{ w.type }}</td>
+                <td>
+                  {% if w.status == 'up' %}<span class="badge bg-success">up</span>
+                  {% else %}<span class="badge bg-secondary">{{ w.status }}</span>{% endif %}
+                </td>
+                <td>{{ w.ipv4 or '—' }}</td>
+                <td><small>{{ w.ipv6 or '—' }}</small></td>
+                <td>{% if w.active %}<span class="badge bg-primary">ACTIVE</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
         {% else %}
-          <p class="text-warning">WAN interface not configured.</p>
+          <p class="text-warning mb-1">No WAN uplinks configured.</p>
           <a href="{{ url_for('wan.index') }}" class="link-secondary">Configure WAN</a>
         {% endif %}
       </div>
     </div>
   </div>
-  <div class="col">
-    <div class="card h-100">
-      <div class="card-header">LAN</div>
-      <div class="card-body">
-        {% if lan_info %}
-          <p>Interface: <strong>{{ lan_info.name }}</strong></p>
-          <p>Status: <strong>{{ lan_info.status }}</strong></p>
-          <p>IPv4: <strong>{{ lan_info.ipv4 or 'None' }}</strong></p>
-          {% if lan_traffic %}<p>Traffic: Sent {{ lan_traffic.sent }}, Recv {{ lan_traffic.recv }}</p>{% endif %}
-        {% else %}
-          <p class="text-warning">LAN interface not configured.</p>
-          <a href="{{ url_for('lan.index') }}" class="link-secondary">Configure LAN</a>
-        {% endif %}
-      </div>
-    </div>
-  </div>
+</div>
+
+<!-- LAN: one card per bridge, with members, APs, status, and DHCP clients -->
+{% if bridges %}
+<div class="row row-cols-1 row-cols-md-2 g-4">
+  {% for b in bridges %}
   <div class="col">
     <div class="card h-100">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span>LAN Clients</span>
+        <span>{{ b.name }}
+          {% if b.status == 'up' %}<span class="badge bg-success ms-1">up</span>
+          {% else %}<span class="badge bg-secondary ms-1">{{ b.status }}</span>{% endif %}
+        </span>
         <form method="get" action="{{ url_for('home.index') }}" class="m-0">
-          <input type="hidden" name="refresh_clients" value="1">
+          <input type="hidden" name="refresh_clients" value="{{ b.name }}">
           <button type="submit" class="btn btn-sm btn-outline-secondary">Refresh</button>
         </form>
       </div>
       <div class="card-body">
-        {% if lan_clients %}
-          <ul class="list-unstyled small">
-            {% for c in lan_clients %}
+        <p class="mb-1">Subnet: <strong>{{ b.subnet or '—' }}</strong></p>
+        <p class="mb-1">Gateway IP: <strong>{{ b.ipv4 or b.gateway or '—' }}</strong></p>
+        <p class="mb-1">Ethernet: <strong>{{ b.eth_members | join(', ') if b.eth_members else '—' }}</strong></p>
+        <p class="mb-2">Access Points:
+          {% if b.ap_ssids %}
+            {% for ap in b.ap_ssids %}<span class="badge bg-info text-dark">{{ ap.ssid }} ({{ ap.iface }})</span> {% endfor %}
+          {% else %}<strong>—</strong>{% endif %}
+        </p>
+        <hr class="my-2">
+        <p class="mb-1 small text-muted">DHCP clients</p>
+        {% if b.clients %}
+          <ul class="list-unstyled small mb-0">
+            {% for c in b.clients %}
               <li>
                 <span class="d-inline-block me-2 rounded-circle {% if c.state == 'REACHABLE' %}bg-success{% else %}bg-secondary{% endif %}" style="width:0.5rem; height:0.5rem;"></span>
                 {{ c.hostname }} : {{ c.ip }} : ({{ c.mac }}){% if c.manufacturer %} : {{ c.manufacturer }}{% endif %}{% if c.state %} : <small>({{ c.state }})</small>{% endif %}
@@ -134,10 +154,46 @@
             {% endfor %}
           </ul>
         {% else %}
-          <p class="text-muted small">No clients found.</p>
+          <p class="text-muted small mb-0">No clients found.</p>
         {% endif %}
       </div>
     </div>
   </div>
+  {% endfor %}
 </div>
+{% else %}
+<div class="row"><div class="col">
+  <p class="text-warning mb-1">No LAN bridges configured.</p>
+  <a href="{{ url_for('lan.index') }}" class="link-secondary">Configure LAN</a>
+</div></div>
+{% endif %}
+
+<!-- WiFi radios: physical radios + their model role -->
+{% if wifi_radios %}
+<div class="row row-cols-1 g-4 mt-1">
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header">WiFi Radios</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0 align-middle">
+          <thead><tr><th>Radio</th><th>Mode</th><th>Detail</th></tr></thead>
+          <tbody>
+          {% for r in wifi_radios %}
+            <tr>
+              <td><strong>{{ r.name }}</strong></td>
+              <td>
+                {% if r.role == 'AP' %}<span class="badge bg-info text-dark">AP</span>
+                {% elif r.role == 'Client' %}<span class="badge bg-primary">Client</span>
+                {% else %}<span class="badge bg-secondary">Off</span>{% endif %}
+              </td>
+              <td>{{ r.detail or '—' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

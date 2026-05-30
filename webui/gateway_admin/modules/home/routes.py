@@ -3,12 +3,12 @@ import json
 import base64
 import re
 import subprocess
-import time
 import urllib.request
 import psutil
-import socket
 from flask import Blueprint, render_template, current_app, flash, redirect, url_for, request
 from flask_login import login_required
+
+from ... import netconfig, netutils
 
 home_bp = Blueprint('home', __name__, url_prefix='')
 
@@ -100,162 +100,79 @@ def index():
         'net_recv': human(nc.bytes_recv)
     }
 
-    # WAN info
-    wan_iface = None
-    wan_path = current_app.config.get('WAN_IFACE_PATH')
-    try:
-        with open(wan_path) as f:
-            wan_iface = f.read().strip()
-    except Exception:
-        wan_iface = None
-    wan_info = None
-    wan_traffic = None
-    if wan_iface:
-        stats = psutil.net_if_stats().get(wan_iface)
-        addrs = psutil.net_if_addrs().get(wan_iface, [])
-        status = 'UP' if stats and stats.isup else 'no_carrier'
-        ipv4 = next((a.address for a in addrs if a.family == socket.AF_INET), None)
-        ipv6 = next((a.address for a in addrs if a.family == socket.AF_INET6), None)
-        wan_info = {
-            'name': wan_iface,
-            'status': status,
-            'ipv4': ipv4,
-            'ipv6': ipv6
-        }
-        # Traffic
-        nic = psutil.net_io_counters(pernic=True).get(wan_iface)
-        if nic:
-            wan_traffic = {'sent': human(nic.bytes_sent), 'recv': human(nic.bytes_recv)}
+    # --- Network: bridge/zone-aware view off the frozen model ---
+    # network.json is the single source of truth now; no more per-iface flag files.
+    model = netconfig.load()
+    wifi = model.get('wifi') or {}
 
-    # LAN info
-    lan_iface = None
-    lan_path = current_app.config.get('LAN_IFACE_PATH')
-    try:
-        with open(lan_path) as f:
-            lan_iface = f.read().strip()
-    except Exception:
-        lan_iface = None
-    lan_info = None
-    lan_traffic = None
-    lan_clients = []
-    if lan_iface:
-        stats = psutil.net_if_stats().get(lan_iface)
-        addrs = psutil.net_if_addrs().get(lan_iface, [])
-        status = 'UP' if stats and stats.isup else 'no_carrier'
-        ipv4 = next((a.address for a in addrs if a.family == socket.AF_INET), None)
-        lan_info = {'name': lan_iface, 'status': status, 'ipv4': ipv4}
-        # Traffic
-        nic = psutil.net_io_counters(pernic=True).get(lan_iface)
-        if nic:
-            lan_traffic = {'sent': human(nic.bytes_sent), 'recv': human(nic.bytes_recv)}
+    # WAN: every uplink + its live link status; flag the active one.
+    wan = model.get('wan') or {}
+    wan_active = wan.get('active')
+    wan_ifaces = []
+    active_no_carrier = False
+    for w in (wan.get('interfaces') or []):
+        iface = w.get('iface')
+        if not iface:
+            continue
+        st = netutils.iface_status(iface)
+        is_active = (iface == wan_active)
+        wan_ifaces.append({
+            'name': iface,
+            'type': netutils.iface_type(iface),
+            'active': is_active,
+            'status': st['status'],
+            'ipv4': st['ipv4'],
+            'ipv6': st['ipv6'],
+        })
+        # active uplink with no link = no internet; worth shouting about.
+        if is_active and st['status'] != 'up':
+            active_no_carrier = True
 
-        # DHCP lease cache with TTL and manual refresh
-        dhcp_cache_file = os.path.join(cache_dir, f'dhcp_clients_{lan_iface}.json')
-        refresh = request.args.get('refresh_clients')
-        # stale if missing or older than 60 minutes, or on explicit refresh
-        stale = False
-        try:
-            if time.time() - os.path.getmtime(dhcp_cache_file) > 3600:
-                stale = True
-        except Exception:
-            stale = True
-        if refresh:
-            stale = True
+    # LAN: one entry per bridge, with its eth members, attached AP SSIDs,
+    # status, and DHCP clients seen on that bridge.
+    refresh = request.args.get('refresh_clients')
+    bridges = []
+    for lan in (model.get('lans') or []):
+        name = lan.get('name')
+        members = lan.get('members') or {}
+        ap_ssids = []
+        for w in (members.get('wifi_ap') or []):
+            cfg = wifi.get(w) or {}
+            if cfg.get('mode') == 'ap':
+                ap_ssids.append({'iface': w, 'ssid': cfg.get('ssid') or w})
+        st = netutils.iface_status(name)
+        # only rebuild the lease cache for the bridge the user hit Refresh on
+        bridges.append({
+            'name': name,
+            'subnet': lan.get('subnet'),
+            'gateway': lan.get('gateway'),
+            'status': st['status'],
+            'ipv4': st['ipv4'],
+            'eth_members': list(members.get('eth') or []),
+            'ap_ssids': ap_ssids,
+            'clients': netutils.dhcp_clients(name, refresh=(refresh == name)),
+        })
 
-        leases = {}
-        if not stale:
-            try:
-                with open(dhcp_cache_file) as f:
-                    leases = {c['mac']: c for c in json.load(f)}
-            except Exception:
-                leases = {}
-        if stale:
-            log_file = f'/var/log/dnsmasq_{lan_iface}.log'
-            try:
-                output = subprocess.check_output(['tail', '-n', '10000', log_file], text=True)
-                for line in reversed(output.splitlines()):
-                    m = re.search(r'DHCPACK\([^)]*\)\s+(\d+\.\d+\.\d+\.\d+)\s+([0-9A-Fa-f:]+)\s+(\S+)', line)
-                    if m:
-                        ip, mac, hostname = m.group(1), m.group(2).lower(), m.group(3)
-                        if mac not in leases:
-                            leases[mac] = {'hostname': hostname, 'ip': ip, 'mac': mac}
-                try:
-                    import manuf
-                    parser = manuf.MacParser()
-                    for v in leases.values():
-                        v['manufacturer'] = parser.get_manuf(v['mac']) or ''
-                except Exception:
-                    for v in leases.values():
-                        v['manufacturer'] = ''
-                tmp = dhcp_cache_file + '.tmp'
-                with open(tmp, 'w') as f:
-                    json.dump(list(leases.values()), f)
-                os.replace(tmp, dhcp_cache_file)
-            except Exception:
-                pass
-
-        try:
-            # fetch neighbor table JSON; ignore non-zero exit codes so we still parse entries even if some are FAILED
-            proc = subprocess.run(
-                ['ip', '-j', 'neigh', 'show', 'dev', lan_iface],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True
-            )
-            neigh_entries = json.loads(proc.stdout or '[]')
-            for entry in neigh_entries:
-                # if JSON includes device, skip other interfaces; otherwise assume filtered by 'show dev'
-                dev = entry.get('dev')
-                if dev and dev != lan_iface:
-                    continue
-                dst = entry.get('dst')
-                # only IPv4
-                if not dst or ':' in dst:
-                    continue
-                mac = entry.get('lladdr', '').lower()
-                if not mac:
-                    continue
-                state = entry.get('state')
-                if isinstance(state, list) and state:
-                    state = state[0]
-                # skip unreachable entries
-                if state == 'FAILED':
-                    continue
-                existing = leases.get(mac)
-                if existing:
-                    # update only when IP matches or to track IP changes
-                    if existing.get('ip') == dst:
-                        existing['state'] = state
-                    else:
-                        existing['state'] = state
-                        existing['ip'] = dst
-                else:
-                    leases[mac] = {
-                        'hostname': None,
-                        'ip': dst,
-                        'mac': mac,
-                        'manufacturer': '',
-                        'state': state
-                    }
-        except Exception:
-            try:
-                with open('/proc/net/arp') as arp_f:
-                    lines = arp_f.readlines()[1:]
-                for line in lines:
-                    parts = line.split()
-                    if parts[5] == lan_iface:
-                        ip_addr, mac_addr = parts[0], parts[3].lower()
-                        if mac_addr not in leases:
-                            leases[mac_addr] = {
-                                'hostname': None,
-                                'ip': ip_addr,
-                                'mac': mac_addr,
-                                'manufacturer': ''
-                            }
-            except Exception:
-                pass
-
-        lan_clients = list(leases.values())
+    # WiFi radios: one row per physical radio + what the model says it's doing.
+    wifi_radios = []
+    # reverse map: which bridge each AP wlan lives in
+    ap_bridge = {}
+    for lan in (model.get('lans') or []):
+        for w in ((lan.get('members') or {}).get('wifi_ap') or []):
+            ap_bridge[w] = lan.get('name')
+    for radio in netutils.list_wifi_radios():
+        cfg = wifi.get(radio) or {}
+        mode = cfg.get('mode')
+        if mode == 'ap':
+            role = 'AP'
+            detail = '%s → %s' % (cfg.get('ssid') or '?', ap_bridge.get(radio) or '?')
+        elif mode == 'client':
+            role = 'Client'
+            detail = (cfg.get('client') or {}).get('ssid') or '?'
+        else:
+            role = 'Off'
+            detail = ''
+        wifi_radios.append({'name': radio, 'role': role, 'detail': detail})
 
     user_info = None
     token_file = current_app.config.get('BORDER0_TOKEN_PATH')
@@ -295,11 +212,10 @@ def index():
         service_enabled=service_enabled,
         device_status=device_status,
         system_info=system_info,
-        wan_info=wan_info,
-        wan_traffic=wan_traffic,
-        lan_info=lan_info,
-        lan_traffic=lan_traffic,
-        lan_clients=lan_clients,
+        wan_ifaces=wan_ifaces,
+        active_no_carrier=active_no_carrier,
+        bridges=bridges,
+        wifi_radios=wifi_radios,
         user_info=user_info
     )
 def check_update():

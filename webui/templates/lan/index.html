@@ -1,269 +1,247 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>LAN Configuration</h1>
-<div class="row mb-4">
-  <div class="col-md-6">
-    <form id="lan-form" method="post" action="{{ url_for('lan.index') }}">
+<h1>LAN Bridges</h1>
+<p class="text-muted">Each bridge is an L2 segment with its own subnet and DHCP. Ethernet
+members are edited here; Wi-Fi APs are attached on the WiFi page.</p>
+
+{% if current_zone and current_zone != 'wan' %}
+  <div class="alert alert-info">
+    You're connected through bridge <strong>{{ current_zone }}</strong>. Editing or
+    deleting it can drop this session — you'll be asked to confirm.
+  </div>
+{% endif %}
+
+{# ---- one editable card per existing bridge ---- #}
+{% for b in bridges %}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Bridge: {{ b.name }}</span>
+    {% if b.wifi_aps %}
+      <span class="text-muted small">APs: {{ b.wifi_aps | join(', ') }} — manage on WiFi page</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('lan.bridge_save') }}" class="bridge-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="mb-3">
-        <label for="iface-select" class="form-label">Select LAN Interface</label>
-        <select id="iface-select" name="iface" class="form-select" required>
-          <option value="" disabled {% if not current_iface %}selected{% endif %}>-- Select interface --</option>
-          {% for iface in interfaces %}
-            <option value="{{ iface }}" {% if iface == current_iface %}selected{% endif %}>{{ iface }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="mb-3">
-        <label for="network" class="form-label">Network Address</label>
-        <input type="text" pattern="^(?:\d{1,3}\.){3}\d{1,3}$" class="form-control" id="network" name="network"
-               value="{{ static_cfg.get('network','') }}" required
-               title="Enter a valid IPv4 network address, e.g., 192.168.1.0">
-      </div>
-      <div class="form-text mb-3">
-        Allowed private /24 subnets: 10.x.x.0, 172.16.x.0–172.31.x.0, or 192.168.x.0.
-        The router's LAN IP and gateway will be the .1 address in the subnet.
-      </div>
-      <div class="mb-3">
-        <label class="form-label">DNS Nameservers</label>
-        <div class="row g-2 mb-2">
-          <div class="col-md-6">
-            <input type="text" class="form-control" id="dns1" name="dns1"
-                   placeholder="Primary DNS" value="{{ dns1 }}">
-          </div>
-          <div class="col-md-6">
-            <input type="text" class="form-control" id="dns2" name="dns2"
-                   placeholder="Secondary DNS" value="{{ dns2 }}">
-          </div>
+      <input type="hidden" name="orig_name" value="{{ b.name }}">
+
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control" name="name" value="{{ b.name }}" required
+                 pattern="[A-Za-z0-9_-]+" title="Letters, digits, dash, underscore">
         </div>
-        <div class="form-text">Enter up to two DNS server IP addresses.</div>
+        <div class="col-md-4">
+          <label class="form-label">Subnet (/24)</label>
+          <input type="text" class="form-control bridge-subnet" name="subnet" value="{{ b.subnet }}"
+                 required title="RFC1918 /24, e.g. 192.168.42.0/24">
+        </div>
       </div>
-      <button type="submit" name="action" value="save" class="btn btn-primary">Save LAN Configuration</button>
+
+      <div class="form-check mt-3 mb-2">
+        <input class="form-check-input" type="checkbox" name="dhcp_enabled"
+               id="dhcp-{{ b.name }}" {% if b.dhcp_enabled %}checked{% endif %}>
+        <label class="form-check-label" for="dhcp-{{ b.name }}">DHCP enabled</label>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">DHCP start</label>
+          <input type="text" class="form-control" name="dhcp_start" value="{{ b.dhcp_start }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">DHCP end</label>
+          <input type="text" class="form-control" name="dhcp_end" value="{{ b.dhcp_end }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Lease</label>
+          <input type="text" class="form-control" name="dhcp_lease" value="{{ b.dhcp_lease }}"
+                 placeholder="4h">
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <label class="form-label">Ethernet members</label>
+        {% if b.eth_offer %}
+          {% for e in b.eth_offer %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="eth_members" value="{{ e }}"
+                     id="eth-{{ b.name }}-{{ e }}" {% if e in b.eth_members %}checked{% endif %}>
+              <label class="form-check-label" for="eth-{{ b.name }}-{{ e }}">{{ e }}</label>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted small">No free ethernet interfaces.</div>
+        {% endif %}
+      </div>
+
+      {# Disruptive-edit confirm: only matters for the bridge you're sitting on. #}
+      {% if current_zone == b.name %}
+      <div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" name="confirm_disruptive"
+               id="confirm-{{ b.name }}">
+        <label class="form-check-label text-warning" for="confirm-{{ b.name }}">
+          I understand this may drop my connection
+        </label>
+      </div>
+      {% endif %}
+
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+
+    {# delete is its own form so it doesn't carry the edit fields #}
+    <form method="post" action="{{ url_for('lan.bridge_delete', name=b.name) }}"
+          class="mt-2" onsubmit="return confirm('Delete bridge {{ b.name }}?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if current_zone == b.name %}
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" name="confirm_disruptive"
+               id="del-confirm-{{ b.name }}">
+        <label class="form-check-label text-warning" for="del-confirm-{{ b.name }}">
+          I understand deleting this will drop my connection
+        </label>
+      </div>
+      {% endif %}
+      <button type="submit" class="btn btn-outline-danger btn-sm">Delete bridge</button>
     </form>
   </div>
-  <div class="col-md-6">
-    <div class="card h-100">
-      <div class="card-header">Available Interfaces</div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>IP Address</th>
-                <th>Mode</th>
-                <th>Selected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for info in interfaces_info %}
-                <tr>
-                  <td>{{ info.name }}</td>
-                  <td>{{ info.type }}</td>
-                  <td>{{ info.status }}</td>
-                  <td>{{ info.ip }}</td>
-                  <td>{{ info.mode }}</td>
-                  <td>
-                    {% if info.name == current_iface %}
-                      <span class="badge bg-success me-1">LAN</span>
-                    {% endif %}
-                    {% if info.name == wan_iface %}
-                      <span class="badge bg-primary">WAN</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+</div>
+{% endfor %}
+
+{# ---- add-bridge empty card ---- #}
+<div class="card mb-4 border-success">
+  <div class="card-header">Add bridge</div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('lan.bridge_save') }}" class="bridge-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="orig_name" value="">
+
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control" name="name" value="{{ suggest_name }}" required
+                 pattern="[A-Za-z0-9_-]+" title="Letters, digits, dash, underscore">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Subnet (/24)</label>
+          <input type="text" class="form-control bridge-subnet" name="subnet"
+                 value="{{ default_subnet }}" required title="RFC1918 /24, e.g. 192.168.42.0/24">
         </div>
       </div>
-    </div>
-  </div>
-  </div>
-  <!-- Wi-Fi Configuration moved under LAN -->
-  <hr>
-  <h2>Wi-Fi Configuration</h2>
-  {% if wifi_interfaces %}
-  {# determine default tab: prefer wlan0 if present, else first interface #}
-  {% if wifi_interfaces | selectattr('name','equalto','wlan0') | list %}
-    {% set default_tab = 'wlan0' %}
-  {% else %}
-    {% set default_tab = wifi_interfaces[0].name %}
-  {% endif %}
-  <ul class="nav nav-tabs" id="lanWifiTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-      <button class="nav-link {% if default_tab=='general' %}active{% endif %}" id="tab-general" data-bs-toggle="tab" data-bs-target="#content-general" type="button" role="tab" aria-controls="content-general" aria-selected="{{ 'true' if default_tab=='general' else 'false' }}">General</button>
-    </li>
-    {% for iface in wifi_interfaces %}
-    <li class="nav-item" role="presentation">
-      <button class="nav-link {% if default_tab==iface.name %}active{% endif %}" id="tab-{{ iface.name }}" data-bs-toggle="tab" data-bs-target="#content-{{ iface.name }}" type="button" role="tab" aria-controls="content-{{ iface.name }}" aria-selected="{{ 'true' if default_tab==iface.name else 'false' }}">{{ iface.name }}</button>
-    </li>
-    {% endfor %}
-  </ul>
-  <div class="tab-content mt-3" id="lanWifiTabsContent">
-    <div class="tab-pane fade {% if default_tab=='general' %}show active{% endif %}" id="content-general" role="tabpanel" aria-labelledby="tab-general">
-      <div class="card mb-4">
-        <div class="card-body">
-          <h5 class="card-title">All Interfaces Summary</h5>
-          <table class="table table-sm">
-            <thead><tr><th>Interface</th><th>Enabled</th><th>Active</th><th>Actions</th></tr></thead>
-            <tbody>
-              {% for iface in wifi_interfaces %}
-              <tr>
-                <td>{{ iface.name }}</td>
-                <td><span class="fw-bold {{ 'text-success' if iface.service_enabled else 'text-danger' }}">{{ 'Enabled' if iface.service_enabled else 'Disabled' }}</span></td>
-                <td><span class="fw-bold {{ 'text-success' if iface.service_active else 'text-danger' }}">{{ 'Active' if iface.service_active else 'Inactive' }}</span></td>
-                <td>
-                  <form method="post" action="{{ url_for('lan.wifi_save', iface=iface.name) }}" class="d-inline">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    {% if iface.service_enabled %}
-                      <button type="submit" name="action" value="disable" class="btn btn-warning btn-sm" formnovalidate>Disable</button>
-                    {% else %}
-                      <button type="submit" name="action" value="enable" class="btn btn-success btn-sm" formnovalidate>Enable</button>
-                    {% endif %}
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+
+      <div class="form-check mt-3 mb-2">
+        <input class="form-check-input" type="checkbox" name="dhcp_enabled" id="dhcp-new"
+               {% if default_dhcp.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="dhcp-new">DHCP enabled</label>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">DHCP start</label>
+          <input type="text" class="form-control" name="dhcp_start" placeholder="192.168.42.10">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">DHCP end</label>
+          <input type="text" class="form-control" name="dhcp_end" placeholder="192.168.42.250">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Lease</label>
+          <input type="text" class="form-control" name="dhcp_lease" value="{{ default_dhcp.lease }}">
         </div>
       </div>
-    </div>
-    {% for iface in wifi_interfaces %}
-    <div class="tab-pane fade {% if default_tab==iface.name %}show active{% endif %}" id="content-{{ iface.name }}" role="tabpanel" aria-labelledby="tab-{{ iface.name }}">
-      <div class="row">
-        <div class="col-md-6">
-          <div class="card mb-4">
-            <div class="card-header">Statistics</div>
-            <div class="card-body">
-              <pre class="small" style="white-space: pre-wrap; word-wrap: break-word;">{{ iface.stats }}</pre>
+
+      <div class="mt-3">
+        <label class="form-label">Ethernet members</label>
+        {% if eth_offer %}
+          {% for e in eth_offer %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="eth_members" value="{{ e }}"
+                     id="eth-new-{{ e }}">
+              <label class="form-check-label" for="eth-new-{{ e }}">{{ e }}</label>
             </div>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <div class="card mb-4">
-            <div class="card-header">Configuration</div>
-            <div class="card-body">
-              <form method="post" action="{{ url_for('lan.wifi_save', iface=iface.name) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class="mb-3">
-                  <label for="ssid-{{ iface.name }}" class="form-label">SSID</label>
-                  <input type="text" class="form-control" id="ssid-{{ iface.name }}" name="ssid" value="{{ iface.ssid }}" required maxlength="32">
-                </div>
-                <div class="mb-3">
-                  <label for="hw_mode-{{ iface.name }}" class="form-label">HW Mode</label>
-                  <select class="form-select" id="hw_mode-{{ iface.name }}" name="hw_mode" required>
-                    {% for mode in hw_modes %}
-                      <option value="{{ mode }}" {% if iface.hw_mode == mode %}selected{% endif %}>{{ hw_mode_labels[mode] }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="mb-3">
-                  <label for="channel-{{ iface.name }}" class="form-label">Channel</label>
-                  <select class="form-select" id="channel-{{ iface.name }}" name="channel" required>
-                    {% for ch in (channels_5g if iface.hw_mode == 'a' else channels_2g) %}
-                      <option value="{{ ch }}" {% if iface.channel == ch %}selected{% endif %}>{{ ch }}</option>
-                    {% endfor %}
-                  </select>
-                  <div class="form-text">Channel list follows the selected band. 5 GHz is non-DFS only.</div>
-                </div>
-                <div class="mb-3">
-                  <label for="passphrase-{{ iface.name }}" class="form-label">WPA2 Passphrase</label>
-                  <div class="input-group">
-                    <input type="password" class="form-control" id="passphrase-{{ iface.name }}" name="wpa_passphrase" value="{{ iface.wpa_passphrase }}" required minlength="8" maxlength="63">
-                    <button class="btn btn-outline-secondary" type="button" id="toggle-pass-{{ iface.name }}">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="d-flex">
-                  <button type="submit" name="action" value="save" class="btn btn-primary">Save Settings</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted small">No free ethernet interfaces.</div>
+        {% endif %}
       </div>
-    </div>
-    {% endfor %}
+
+      <div class="mt-3">
+        <button type="submit" class="btn btn-success">Add bridge</button>
+      </div>
+    </form>
   </div>
-  {% else %}
-  <p>No Wi-Fi interfaces found.</p>
-  {% endif %}
+</div>
+
+{# ---- available interfaces (read-only) ---- #}
+<div class="card mb-4">
+  <div class="card-header">Available Interfaces</div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>Status</th><th>IP Address</th><th>Mode</th></tr>
+        </thead>
+        <tbody>
+          {% for info in iface_rows %}
+          <tr>
+            <td>{{ info.name }}</td>
+            <td>{{ info.type }}</td>
+            <td>{{ info.status }}</td>
+            <td>{{ info.ip }}</td>
+            <td>{{ info.mode or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-  document.getElementById('lan-form').addEventListener('submit', function(e) {
-    var net = document.getElementById('network').value.trim();
-    var parts = net.split('.');
-    if (parts.length !== 4) {
-      e.preventDefault();
-      alert('Network must have 4 octets.');
-      return;
-    }
-    for (var i = 0; i < 4; i++) {
-      var oct = parseInt(parts[i], 10);
-      if (isNaN(oct) || oct < 0 || oct > 255) {
+  // Client-side gate so an obviously-bad subnet never hits the server: 4 octets,
+  // RFC1918, /24 ending in .0. Server re-validates regardless.
+  document.querySelectorAll('.bridge-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      var field = form.querySelector('.bridge-subnet');
+      if (!field) return;
+      var val = field.value.trim();
+      var slash = val.split('/');
+      var addr = slash[0];
+      var parts = addr.split('.');
+      if (parts.length !== 4) {
         e.preventDefault();
-        alert('Invalid octet in network address: ' + parts[i]);
+        alert('Subnet must have 4 octets.');
         return;
       }
-    }
-    // Ensure network is in RFC1918 private ranges
-    var first = parseInt(parts[0], 10);
-    var second = parseInt(parts[1], 10);
-    if (!(first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168))) {
-      e.preventDefault();
-      alert('Network must be within RFC1918 private ranges: 10.x.x.x, 172.16.x.x–172.31.x.x, or 192.168.x.x');
-      return;
-    }
-    // Ensure network is a /24 (last octet == 0)
-    var last = parseInt(parts[3], 10);
-    if (last !== 0) {
-      e.preventDefault();
-      alert('Network must end in .0 for a /24 subnet');
-      return;
-    }
-  });
-  </script>
-  <script>
-    var WIFI_CHANNELS = {
-      g: {{ channels_2g | tojson }},
-      a: {{ channels_5g | tojson }}
-    };
-    document.addEventListener('DOMContentLoaded', function() {
-      {% for iface in wifi_interfaces %}
-      (function() {
-        var toggleBtn = document.getElementById('toggle-pass-{{ iface.name }}');
-        var passwordInput = document.getElementById('passphrase-{{ iface.name }}');
-        if (toggleBtn && passwordInput) {
-          toggleBtn.addEventListener('click', function() {
-            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
-          });
+      for (var i = 0; i < 4; i++) {
+        var oct = parseInt(parts[i], 10);
+        if (isNaN(oct) || oct < 0 || oct > 255) {
+          e.preventDefault();
+          alert('Invalid octet in subnet: ' + parts[i]);
+          return;
         }
-        // Repopulate the channel dropdown to match the selected band, keeping
-        // the current selection where it's still valid (else pick the first).
-        var modeSel = document.getElementById('hw_mode-{{ iface.name }}');
-        var chanSel = document.getElementById('channel-{{ iface.name }}');
-        if (modeSel && chanSel) {
-          modeSel.addEventListener('change', function() {
-            var prev = chanSel.value;
-            var channels = WIFI_CHANNELS[modeSel.value] || [];
-            chanSel.innerHTML = '';
-            channels.forEach(function(ch) {
-              var opt = new Option(ch, ch);
-              if (ch === prev) { opt.selected = true; }
-              chanSel.add(opt);
-            });
-          });
-        }
-      })();
-      {% endfor %}
+      }
+      var first = parseInt(parts[0], 10);
+      var second = parseInt(parts[1], 10);
+      if (!(first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168))) {
+        e.preventDefault();
+        alert('Subnet must be RFC1918: 10.x.x.x, 172.16.x.x–172.31.x.x, or 192.168.x.x');
+        return;
+      }
+      var last = parseInt(parts[3], 10);
+      if (last !== 0) {
+        e.preventDefault();
+        alert('Subnet must end in .0 for a /24');
+        return;
+      }
+      if (slash.length === 2 && slash[1].trim() !== '24') {
+        e.preventDefault();
+        alert('Subnet must be a /24');
+        return;
+      }
     });
-  </script>
+  });
+</script>
 {% endblock %}

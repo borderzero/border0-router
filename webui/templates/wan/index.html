@@ -2,122 +2,119 @@
 {% block content %}
 <h1>WAN Configuration</h1>
 <div class="mb-4">
-  <p class="text-muted">Configure the WAN (Wide Area Network) connection to your upstream ISP or router. Choose the interface and whether to use DHCP or static settings. In static mode, specify the IP, netmask, gateway, DNS servers, and broadcast address.</p>
+  <p class="text-muted">WAN is a logical zone, not a bridge. Tick the interfaces that belong to the zone, set each one's addressing (DHCP or static), and pick the single <strong>active uplink</strong> that carries the live default route. Everything else stays defined but down. WiFi client interfaces are managed on the WiFi page; they appear here and can be chosen as the active uplink.</p>
 </div>
-<div class="row mb-4">
-  <div class="col-md-6">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    <form method="post" action="{{ url_for('wan.index') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="iface-select" class="form-label">Select WAN Interface</label>
-    <select id="iface-select" name="iface" class="form-select" required>
-      <option value="" disabled {% if not current_iface %}selected{% endif %}>-- Select interface --</option>
-      {% for iface in interfaces %}
-        <option value="{{ iface }}" {% if iface == current_iface %}selected{% endif %}>{{ iface }}</option>
-      {% endfor %}
-    </select>
-    <div class="form-text">Choose the physical or virtual interface connected to your upstream network.</div>
-  </div>
-  <div class="mb-3">
-    <label for="mode-select" class="form-label">Configuration Mode</label>
-    <select id="mode-select" name="mode" class="form-select" required>
-      <option value="dhcp" {% if mode=='dhcp' %}selected{% endif %}>DHCP (dynamic)</option>
-      <option value="static" {% if mode=='static' %}selected{% endif %}>Static</option>
-    </select>
-    <div class="form-text">DHCP: obtain IP settings automatically. Static: manually enter network details below.</div>
-  </div>
-  <div id="static-fields" {% if mode!='static' %}style="display:none"{% endif %}>
-    <div class="mb-3">
-      <label for="address" class="form-label">IP Address</label>
-      <input type="text" class="form-control" id="address" name="address"
-             value="{{ static_cfg.get('address','') }}">
-      <div class="form-text">Static IP address to assign to the WAN interface.</div>
-    </div>
-    <div class="mb-3">
-      <label for="netmask" class="form-label">Netmask</label>
-      <input type="text" class="form-control" id="netmask" name="netmask"
-             value="{{ static_cfg.get('netmask','') }}">
-      <div class="form-text">Subnet mask, e.g., 255.255.255.0 for a /24 network.</div>
-    </div>
-    <div class="mb-3">
-      <label for="gateway" class="form-label">Gateway</label>
-      <input type="text" class="form-control" id="gateway" name="gateway"
-             value="{{ static_cfg.get('gateway','') }}">
-      <div class="form-text">Default gateway IP for outbound traffic.</div>
-    </div>
-    <div class="mb-3">
-      <label for="dns" class="form-label">DNS Nameservers (space-separated)</label>
-      <input type="text" class="form-control" id="dns" name="dns"
-             value="{{ static_cfg.get('dns-nameservers','') }}">
-      <div class="form-text">Enter one or more DNS server IPs for name resolution.</div>
-    </div>
-    <div class="mb-3">
-      <label for="broadcast" class="form-label">Broadcast</label>
-      <input type="text" class="form-control" id="broadcast" name="broadcast"
-             value="{{ static_cfg.get('broadcast','') }}">
-      <div class="form-text">Broadcast address for the network.</div>
-    </div>
-  </div>
-  <button type="submit" name="action" value="save" class="btn btn-primary">Save WAN Configuration</button>
-    </form>
-  </div>
-  <div class="col-md-6">
-    <div class="card h-100">
-      <div class="card-header">Available Interfaces</div>
-      <div class="card-body">
-        <div class="table-responsive">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>IP Address</th>
-                <th>Mode</th>
-                <th>Selected</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for info in interfaces_info %}
-                <tr>
-                  <td>{{ info.name }}</td>
-                  <td>{{ info.type }}</td>
-                  <td>{{ info.status }}</td>
-                  <td>{{ info.ip }}</td>
-                  <td>{{ info.mode }}</td>
-                  <td>
-                    {% if info.name == current_iface %}
-                      <span class="badge bg-success me-1">WAN</span>
-                    {% endif %}
-                    {% if info.name == lan_iface %}
-                      <span class="badge bg-primary">LAN</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<form method="post" action="{{ url_for('wan.index') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  {% if not rows %}
+    <div class="alert alert-info">No WAN candidate interfaces found. eth* interfaces claimed by a LAN bridge are not listed here.</div>
+  {% endif %}
+
+  {% for row in rows %}
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <div>
+        <div class="form-check d-inline-block me-3">
+          <input class="form-check-input" type="checkbox" name="in_zone" value="{{ row.iface }}"
+                 id="in_zone_{{ row.iface }}" {% if row.in_zone %}checked{% endif %}
+                 {% if row.is_client %}disabled checked{% endif %}>
+          {% if row.is_client %}
+            {# WiFi page owns this row; the checkbox is for display, the value is preserved server-side. #}
+            <input type="hidden" name="in_zone" value="{{ row.iface }}">
+          {% endif %}
+          <label class="form-check-label fw-bold" for="in_zone_{{ row.iface }}">{{ row.iface }} in WAN zone</label>
         </div>
+        {% if row.is_client %}
+          <span class="badge bg-info text-dark">WiFi client — configure on WiFi page</span>
+        {% endif %}
+        <span class="badge bg-secondary">{{ row.status.status }}</span>
+        {% if row.status.ipv4 %}<span class="badge bg-light text-dark">{{ row.status.ipv4 }}</span>{% endif %}
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="active" value="{{ row.iface }}"
+               id="active_{{ row.iface }}" {% if active == row.iface %}checked{% endif %}>
+        <label class="form-check-label" for="active_{{ row.iface }}">Active uplink</label>
       </div>
     </div>
+    <div class="card-body">
+      {% if row.is_client %}
+        <p class="text-muted mb-0">Addressing for WiFi client links is set on the WiFi page.</p>
+      {% else %}
+        <div class="mb-3">
+          <label for="mode_{{ row.iface }}" class="form-label">Mode</label>
+          <select id="mode_{{ row.iface }}" name="mode_{{ row.iface }}" class="form-select mode-select"
+                  data-iface="{{ row.iface }}">
+            <option value="dhcp" {% if row.mode == 'dhcp' %}selected{% endif %}>DHCP (dynamic)</option>
+            <option value="static" {% if row.mode == 'static' %}selected{% endif %}>Static</option>
+          </select>
+        </div>
+        <div id="static-fields-{{ row.iface }}" class="static-fields"
+             {% if row.mode != 'static' %}style="display:none"{% endif %}>
+          <div class="mb-3">
+            <label for="address_{{ row.iface }}" class="form-label">IP Address</label>
+            <input type="text" class="form-control" id="address_{{ row.iface }}"
+                   name="address_{{ row.iface }}" value="{{ row.address }}">
+          </div>
+          <div class="mb-3">
+            <label for="netmask_{{ row.iface }}" class="form-label">Netmask</label>
+            <input type="text" class="form-control" id="netmask_{{ row.iface }}"
+                   name="netmask_{{ row.iface }}" value="{{ row.netmask }}">
+          </div>
+          <div class="mb-3">
+            <label for="gateway_{{ row.iface }}" class="form-label">Gateway</label>
+            <input type="text" class="form-control" id="gateway_{{ row.iface }}"
+                   name="gateway_{{ row.iface }}" value="{{ row.gateway }}">
+          </div>
+          <div class="mb-3">
+            <label for="dns_{{ row.iface }}" class="form-label">DNS Nameservers (space-separated)</label>
+            <input type="text" class="form-control" id="dns_{{ row.iface }}"
+                   name="dns_{{ row.iface }}" value="{{ row.dns }}">
+          </div>
+        </div>
+      {% endif %}
+    </div>
   </div>
-</div>
+  {% endfor %}
+
+  {% if rows %}
+  <div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" name="confirm_disruptive" id="confirm_disruptive" value="1">
+    <label class="form-check-label" for="confirm_disruptive">
+      I understand changing the active uplink may drop my connection (only needed when connected via WAN).
+    </label>
+  </div>
+  <button type="submit" class="btn btn-primary">Save WAN Configuration</button>
+  {% endif %}
+</form>
+
 {% block scripts %}
 <script>
-  function toggleStatic() {
-    var mode = document.getElementById('mode-select').value;
-    var sf = document.getElementById('static-fields');
-    sf.style.display = (mode === 'static') ? 'block' : 'none';
+  // Per-row DHCP/static toggle. Same shape as the old single-iface toggleStatic(),
+  // just keyed by iface so each card hides/shows its own static block.
+  function toggleStatic(iface) {
+    var sel = document.getElementById('mode_' + iface);
+    var sf = document.getElementById('static-fields-' + iface);
+    if (!sel || !sf) return;
+    sf.style.display = (sel.value === 'static') ? 'block' : 'none';
   }
-  document.getElementById('mode-select').addEventListener('change', toggleStatic);
-  document.addEventListener('DOMContentLoaded', toggleStatic);
+  document.querySelectorAll('.mode-select').forEach(function(sel) {
+    sel.addEventListener('change', function() { toggleStatic(sel.dataset.iface); });
+  });
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.mode-select').forEach(function(sel) {
+      toggleStatic(sel.dataset.iface);
+    });
+  });
 </script>
 {% endblock %}
 {% endblock %}

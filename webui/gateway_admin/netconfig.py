@@ -104,6 +104,26 @@ def _netmask_broadcast(subnet):
     return str(net.netmask), str(net.broadcast_address)
 
 
+def ingress_zone(remote_addr, model):
+    """Which zone the admin's request arrived on: a LAN bridge name, 'wan', or None.
+
+    Used by the UI to warn before a change would cut the admin's own connection
+    (don't saw off the branch you're sitting on). A client IP inside a LAN
+    subnet => that bridge; anything else => 'wan' (reached from upstream).
+    """
+    try:
+        ip = ipaddress.ip_address(remote_addr)
+    except Exception:
+        return None
+    for lan in _lans(model):
+        try:
+            if ip in ipaddress.ip_network(lan.get('subnet'), strict=False):
+                return lan.get('name')
+        except Exception:
+            continue
+    return 'wan'
+
+
 def _iface_phy(iface):
     """Map a wlan iface to its phy id via sysfs, or None if unavailable.
 

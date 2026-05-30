@@ -1,379 +1,211 @@
-import os
-import re
 import ipaddress
-import subprocess
-from flask import Blueprint, render_template, request, flash, redirect, url_for, current_app, abort
+
+from flask import Blueprint, render_template, request, flash, redirect, url_for
 from flask_login import login_required
-import socket
-import psutil
+
+from ... import netconfig, netutils
 
 lan_bp = Blueprint('lan', __name__, url_prefix='/lan')
 
-# Default static configuration for LAN (used as initial values)
-DEFAULT_LAN_STATIC_CFG = {
-    'address': '192.168.42.1',
-    'netmask': '255.255.255.0',
-    'gateway': '192.168.42.1',
-    'dns-nameservers': '8.8.8.8 1.1.1.1',
-    'broadcast': '192.168.42.255'
-}
-
-# Selectable Wi-Fi channels per band. 5 GHz is restricted to non-DFS channels
-# because the AP config runs with ieee80211h=0 — DFS channels (52-144) need
-# radar handling we don't enable. ACS (channel=0) is intentionally NOT offered:
-# the Pi's WiFi drivers (brcmfmac, rtw_8821cu) don't implement the nl80211
-# survey it needs, so it starts and then silently fails to bring up the AP.
-CHANNELS_2G = [str(c) for c in range(1, 12)]                  # 1-11 (US)
-CHANNELS_5G = ['36', '40', '44', '48', '149', '153', '157', '161']
-DEFAULT_CHANNEL = {'g': '6', 'a': '36'}
-# VHT 80 MHz center-frequency segment index per 5 GHz channel: the center of
-# the 80 MHz block the channel belongs to (36-48 -> 42, 149-161 -> 155). A
-# channel must set this to match its block or the radio won't come up.
-VHT80_SEG0 = {
-    '36': '42', '40': '42', '44': '42', '48': '42',
-    '149': '155', '153': '155', '157': '155', '161': '155',
-}
+DEFAULT_SUBNET = '192.168.42.0/24'
+DEFAULT_DHCP = {'enabled': True, 'start_host': 10, 'end_host': 250, 'lease': '4h'}
 
 
-def _allowed_channels(hw_mode):
-    return CHANNELS_2G if hw_mode == 'g' else CHANNELS_5G
+def _eth_ifaces():
+    """Physical eth* names. Empty on a dev box without the hardware."""
+    return netutils.list_interfaces(('eth',))
 
 
-def _display_channel(raw, hw_mode):
-    """Return a valid channel to preselect in the UI for a stored config.
+def _claimed_eth(model, skip_lan=None):
+    """eth ifaces already spoken for — by another bridge or by WAN.
 
-    Falls back to the band default if the stored value is empty/invalid (e.g.
-    channel=0 left by an old ACS config, or a DFS channel we no longer list).
+    skip_lan lets the bridge being edited keep its own members in the offer.
     """
-    band = hw_mode if hw_mode in ('g', 'a') else 'g'
-    raw = (raw or '').strip()
-    return raw if raw in _allowed_channels(band) else DEFAULT_CHANNEL[band]
+    taken = set()
+    for lan in model.get('lans') or []:
+        if lan.get('name') == skip_lan:
+            continue
+        for e in (lan.get('members') or {}).get('eth') or []:
+            taken.add(e)
+    for w in (model.get('wan') or {}).get('interfaces') or []:
+        if w.get('iface'):
+            taken.add(w['iface'])
+    return taken
 
-@lan_bp.route('/', methods=['GET', 'POST'])
+
+def _suggest_name(model):
+    """Next free lanN. We don't reuse gaps — monotonic is less surprising."""
+    used = {lan.get('name') for lan in model.get('lans') or []}
+    n = 0
+    while f'lan{n}' in used:
+        n += 1
+    return f'lan{n}'
+
+
+def _flash_apply_result(res):
+    """Flash whatever apply() coughed up: WARN as warning, the rest as danger."""
+    for e in res.get('errors') or []:
+        flash(e, 'warning' if e.startswith('WARN') else 'danger')
+
+
+def _bridge_view(lan, model):
+    """Shape one stored bridge into what the template card needs."""
+    dhcp = lan.get('dhcp') or {}
+    name = lan.get('name')
+    return {
+        'name': name,
+        'subnet': lan.get('subnet', ''),
+        'dhcp_enabled': bool(dhcp.get('enabled')),
+        'dhcp_start': dhcp.get('start', ''),
+        'dhcp_end': dhcp.get('end', ''),
+        'dhcp_lease': dhcp.get('lease', '4h'),
+        'eth_members': list((lan.get('members') or {}).get('eth') or []),
+        'wifi_aps': list((lan.get('members') or {}).get('wifi_ap') or []),
+        # eth ifaces this card may offer: free ones + its own current members.
+        'eth_offer': [e for e in _eth_ifaces() if e not in _claimed_eth(model, skip_lan=name)],
+    }
+
+
+@lan_bp.route('/', methods=['GET'])
 @login_required
 def index():
-    # Discover LAN interfaces: only ethX or wlanX, excluding selected WAN
-    net_dir = '/sys/class/net'
-    interfaces = []
-    wan_iface = None
-    wan_iface_path = current_app.config.get('WAN_IFACE_PATH')
-    try:
-        with open(wan_iface_path) as f:
-            wan_iface = f.read().strip()
-    except Exception:
-        wan_iface = None
-    if os.path.isdir(net_dir):
-        for iface in sorted(os.listdir(net_dir)):
-            # only physical ethX or wlanX
-            if not re.match(r'^(eth|wlan)\d+$', iface):
-                continue
-            if iface == wan_iface:
-                continue
-            interfaces.append(iface)
-
-    # Load current LAN interface selection and static config
-    current_iface = None
-    static_cfg = DEFAULT_LAN_STATIC_CFG.copy()
-    lan_iface_path = current_app.config.get('LAN_IFACE_PATH')
-    try:
-        with open(lan_iface_path) as f:
-            current_iface = f.read().strip()
-    except Exception:
-        current_iface = None
-
-    if request.method == 'POST':
-        action = request.form.get('action')
-        iface = request.form.get('iface')
-        # Restart interface
-        if action == 'restart':
-            if iface not in interfaces:
-                flash('Invalid interface selected for LAN', 'warning')
-                return redirect(url_for('lan.index'))
-            try:
-                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
-                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
-                flash(f'LAN interface {iface} restarted', 'success')
-            except Exception as e:
-                flash(f'Failed to restart LAN interface: {e}', 'danger')
-            return redirect(url_for('lan.index'))
-        # Save new configuration
-        if iface not in interfaces:
-            flash('Invalid interface selected for LAN', 'warning')
-            return redirect(url_for('lan.index'))
-        # Read form fields: network (fixed /24) and separate DNS entries
-        network_str = request.form.get('network', '').strip()
-        dns1 = request.form.get('dns1', '').strip()
-        dns2 = request.form.get('dns2', '').strip()
-        dns_list = [ip for ip in (dns1, dns2) if ip]
-        dns = ' '.join(dns_list)
-        if not network_str:
-            flash('Network is required for LAN', 'warning')
-            return redirect(url_for('lan.index'))
-        try:
-            network = ipaddress.IPv4Network(f"{network_str}/24", strict=True)
-        except Exception:
-            flash('Invalid LAN network; must be a valid /24 network address ending in .0', 'warning')
-            return redirect(url_for('lan.index'))
-        # Only allow RFC1918 private subnets
-        if not network.is_private:
-            flash('Subnet must be within RFC1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)', 'warning')
-            return redirect(url_for('lan.index'))
-        address = str(network.network_address + 1)
-        netmask = '255.255.255.0'
-        gateway = address
-        broadcast = str(network.broadcast_address)
-        # Validate optional DNS server addresses
-        for ip in dns_list:
-            try:
-                ipaddress.IPv4Address(ip)
-            except Exception:
-                flash(f'Invalid LAN DNS address: {ip}', 'warning')
-                return redirect(url_for('lan.index'))
-        # Write configuration file
-        cfg_dir = '/etc/network/interfaces.d'
-        os.makedirs(cfg_dir, exist_ok=True)
-        cfg_file = os.path.join(cfg_dir, f'{iface}.conf')
-        template_name = 'config/interfaces-static.conf.j2'
-        context = {
-            'iface': iface,
-            'address': address,
-            'netmask': netmask,
-            'gateway': gateway,
-            'dns': dns,
-            'broadcast': broadcast,
-            'wan_iface': wan_iface
-        }
-        try:
-            content = render_template(template_name, **context)
-            with open(cfg_file, 'w') as f:
-                f.write(content)
-            os.makedirs(os.path.dirname(lan_iface_path), exist_ok=True)
-            with open(lan_iface_path, 'w') as f:
-                f.write(iface + '\n')
-            flash(f'LAN interface {iface} configured statically', 'success')
-            # Automatically restart the LAN interface
-            try:
-                subprocess.run(['ifdown', iface], capture_output=True, text=True, timeout=10)
-                subprocess.run(['ifup', iface], capture_output=True, text=True, timeout=10)
-                flash(f'LAN interface {iface} restarted', 'success')
-            except Exception as e:
-                flash(f'Failed to restart LAN interface: {e}', 'danger')
-        except Exception as e:
-            flash(f'Failed to save LAN config: {e}', 'danger')
-        return redirect(url_for('lan.index'))
-
-    # On GET, load existing static config of selected LAN iface
-    if current_iface and current_iface in interfaces:
-        cfg_file = os.path.join('/etc/network/interfaces.d', f'{current_iface}.conf')
-        if os.path.isfile(cfg_file):
-            try:
-                text = open(cfg_file).read()
-                # Parse address and netmask
-                m = re.search(r'^\s*address\s+(.+)', text, re.M)
-                if m:
-                    static_cfg['address'] = m.group(1).strip()
-                m = re.search(r'^\s*netmask\s+(.+)', text, re.M)
-                if m:
-                    static_cfg['netmask'] = m.group(1).strip()
-                # Parse DNS nameservers (commented or not)
-                m = re.search(r'^\s*#?dns-nameservers\s+(.+)', text, re.M)
-                if m:
-                    static_cfg['dns-nameservers'] = m.group(1).strip()
-            except Exception:
-                pass
-    # Compute network and prefix for display
-    try:
-        net = ipaddress.IPv4Network(f"{static_cfg['address']}/{static_cfg['netmask']}", strict=False)
-        static_cfg['network'] = str(net.network_address)
-        static_cfg['prefix'] = net.prefixlen
-        static_cfg['gateway'] = str(net.network_address + 1)
-        static_cfg['broadcast'] = str(net.broadcast_address)
-    except Exception:
-        static_cfg['network'] = ''
-        static_cfg['prefix'] = 24
-
-    # Build interface information for display
-    iface_stats = psutil.net_if_stats()
-    iface_addrs = psutil.net_if_addrs()
-    interfaces_info = []
-    for iface in interfaces:
-        if os.path.isdir(f'/sys/class/net/{iface}/wireless'):
-            iface_type = 'WiFi'
-        else:
-            iface_type = 'Ethernet'
-        is_up = iface_stats.get(iface).isup if iface in iface_stats else False
-        status = 'UP' if is_up else 'no_carrier'
-        ip_addr = 'none'
-        for addr in iface_addrs.get(iface, []):
-            if addr.family == socket.AF_INET:
-                ip_addr = addr.address
-                break
-        cfg_file = os.path.join('/etc/network/interfaces.d', f'{iface}.conf')
-        mode_val = 'unmanaged'
-        if os.path.isfile(cfg_file):
-            try:
-                text = open(cfg_file).read()
-                if re.search(rf'^iface {re.escape(iface)} inet static', text, re.M):
-                    mode_val = 'static'
-                elif re.search(rf'^iface {re.escape(iface)} inet dhcp', text, re.M):
-                    mode_val = 'dynamic'
-            except Exception:
-                pass
-        interfaces_info.append({
-            'name': iface,
-            'type': iface_type,
-            'status': status,
-            'ip': ip_addr,
-            'mode': mode_val
-        })
-    # Split existing DNS nameservers for template
-    dns_list = static_cfg.get('dns-nameservers', '').split()
-    dns1 = dns_list[0] if len(dns_list) > 0 else ''
-    dns2 = dns_list[1] if len(dns_list) > 1 else ''
-    # Wi-Fi configuration data (only wlanX)
-    net_dir = '/sys/class/net'
-    wifi_interfaces = []
-    hostapd_dir = '/etc/hostapd'
-    for iface in sorted(os.listdir(net_dir)):
-        # only wlanX interfaces
-        if not re.match(r'^wlan\d+$', iface):
-            continue
-        if os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
-            cfg_file = os.path.join(hostapd_dir, f"{iface}.conf")
-            ssid = hw_mode = wpa_passphrase = channel = ''
-            if os.path.isfile(cfg_file):
-                try:
-                    with open(cfg_file) as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line or line.startswith('#') or '=' not in line:
-                                continue
-                            k, v = line.split('=', 1)
-                            if k == 'ssid':
-                                ssid = v
-                            elif k == 'hw_mode':
-                                hw_mode = v
-                            elif k == 'wpa_passphrase':
-                                wpa_passphrase = v
-                            elif k == 'channel':
-                                channel = v
-                except Exception:
-                    pass
-            try:
-                result = subprocess.run(['iwconfig', iface], capture_output=True, text=True, timeout=2)
-                stats = result.stdout or result.stderr
-            except Exception:
-                stats = 'Unable to retrieve interface statistics'
-            try:
-                en = subprocess.run(['systemctl', 'is-enabled', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
-                service_enabled = en.stdout.strip() == 'enabled'
-            except Exception:
-                service_enabled = False
-            try:
-                act = subprocess.run(['systemctl', 'is-active', f'hostapd@{iface}'], capture_output=True, text=True, timeout=2)
-                service_active = act.stdout.strip() == 'active'
-            except Exception:
-                service_active = False
-            wifi_interfaces.append({
-                'name': iface,
-                'ssid': ssid,
-                'hw_mode': hw_mode,
-                'wpa_passphrase': wpa_passphrase,
-                'channel': _display_channel(channel, hw_mode),
-                'stats': stats,
-                'service_enabled': service_enabled,
-                'service_active': service_active
-            })
-    HW_MODES = ['g', 'a']
-    hw_mode_labels = {
-        'g': '2.4 GHz (802.11g: 6/12/24/54 Mbps)',
-        'a': '5 GHz (802.11a/n/ac: up to 866 Mbps)'
-    }
+    model = netconfig.load()
+    bridges = [_bridge_view(lan, model) for lan in model.get('lans') or []]
     return render_template(
         'lan/index.html',
-        interfaces=interfaces,
-        current_iface=current_iface,
-        static_cfg=static_cfg,
-        dns1=dns1,
-        dns2=dns2,
-        interfaces_info=interfaces_info,
-        wan_iface=wan_iface,
-        wifi_interfaces=wifi_interfaces,
-        hw_modes=HW_MODES,
-        hw_mode_labels=hw_mode_labels,
-        channels_2g=CHANNELS_2G,
-        channels_5g=CHANNELS_5G
+        bridges=bridges,
+        suggest_name=_suggest_name(model),
+        default_subnet=DEFAULT_SUBNET,
+        default_dhcp=DEFAULT_DHCP,
+        eth_offer=[e for e in _eth_ifaces() if e not in _claimed_eth(model)],
+        iface_rows=netutils.iface_table(netutils.list_interfaces()),
+        # which zone the admin is on, so the template can pre-warn on disruptive edits
+        current_zone=netconfig.ingress_zone(request.remote_addr, model),
     )
- 
-@lan_bp.route('/wifi/<iface>', methods=['POST'])
+
+
+@lan_bp.route('/bridge', methods=['POST'])
 @login_required
-def wifi_save(iface):
-    # Validate wireless interface
-    net_dir = '/sys/class/net'
-    if not os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
-        abort(404)
-    action = request.form.get('action')
-    service = f'hostapd@{iface}'
-    if action in ['enable', 'disable', 'restart']:
-        try:
-            if action == 'enable':
-                cmd = ['systemctl', 'enable', '--now', service]
-                msg = 'enabled and started'
-            elif action == 'disable':
-                cmd = ['systemctl', 'disable', '--now', service]
-                msg = 'disabled and stopped'
-            else:
-                cmd = ['systemctl', 'restart', service]
-                msg = 'restarted'
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                flash(f'Service {service} {msg} successfully', 'success')
-            else:
-                flash(f'Failed to {action} service {service}: {result.stderr or result.stdout}', 'danger')
-        except Exception as e:
-            flash(f'Error managing service {service}: {e}', 'danger')
+def bridge_save():
+    """Create (orig_name='') or update one bridge, then apply."""
+    f = request.form
+    orig_name = f.get('orig_name', '').strip()
+    name = f.get('name', '').strip()
+
+    if not name:
+        flash('Bridge name is required', 'warning')
         return redirect(url_for('lan.index'))
-    # Configuration save
-    ssid = request.form.get('ssid', '').strip()
-    hw_mode = request.form.get('hw_mode', '').strip()
-    wpa_passphrase = request.form.get('wpa_passphrase', '').strip()
-    channel = request.form.get('channel', '').strip()
-    if not ssid:
-        flash(f'SSID must not be empty for {iface}', 'warning')
-        return redirect(url_for('lan.index'))
-    if hw_mode not in ['g', 'a']:
-        flash(f'Invalid HW mode for {iface}', 'warning')
-        return redirect(url_for('lan.index'))
-    if len(wpa_passphrase) < 8:
-        flash(f'Passphrase must be at least 8 characters for {iface}', 'warning')
-        return redirect(url_for('lan.index'))
-    if channel not in _allowed_channels(hw_mode):
-        band = '2.4 GHz' if hw_mode == 'g' else '5 GHz'
-        flash(f'Invalid channel {channel} for {band} on {iface}', 'warning')
-        return redirect(url_for('lan.index'))
-    # 5 GHz uses an 80 MHz block (vht width=1) with the seg0 index matching the
-    # channel's block; 2.4 GHz ignores these VHT fields in its template.
-    vht_chwidth = 1 if channel in VHT80_SEG0 else 0
-    vht_seg0 = VHT80_SEG0.get(channel, '')
-    cfg_dir = '/etc/hostapd'
-    os.makedirs(cfg_dir, exist_ok=True)
-    cfg_file = os.path.join(cfg_dir, f"{iface}.conf")
+
+    # Parse subnet: RFC1918, strict /24 (network address ending in .0).
+    subnet_str = f.get('subnet', '').strip()
     try:
-        # Choose template
-        tmpl = 'config/hostapd-2g.conf.j2' if hw_mode == 'g' else 'config/hostapd-5g.conf.j2'
-        content = render_template(tmpl, iface=iface, ssid=ssid, hw_mode=hw_mode,
-                                  wpa_passphrase=wpa_passphrase, channel=channel,
-                                  vht_chwidth=vht_chwidth, vht_seg0=vht_seg0)
-        with open(cfg_file, 'w') as f:
-            f.write(content)
-        flash(f'Configuration for {iface} saved', 'success')
-        # Automatically enable and restart the hostapd service for this interface
+        net = ipaddress.IPv4Network(subnet_str, strict=True)
+    except Exception:
+        flash('Invalid subnet; must be a CIDR like 192.168.42.0/24', 'warning')
+        return redirect(url_for('lan.index'))
+    if net.prefixlen != 24:
+        flash('Subnet must be a /24', 'warning')
+        return redirect(url_for('lan.index'))
+    if not net.is_private:
+        flash('Subnet must be RFC1918 (10/8, 172.16/12, 192.168/16)', 'warning')
+        return redirect(url_for('lan.index'))
+
+    gateway = str(net.network_address + 1)
+
+    # DHCP fields. Range must sit inside the subnet (and not collide with .0/.1).
+    dhcp_enabled = f.get('dhcp_enabled') == 'on'
+    dhcp_start = f.get('dhcp_start', '').strip()
+    dhcp_end = f.get('dhcp_end', '').strip()
+    lease = f.get('dhcp_lease', '').strip() or '4h'
+    if dhcp_enabled:
         try:
-            subprocess.run(['systemctl', 'enable', service], capture_output=True, text=True, timeout=10)
-            subprocess.run(['systemctl', 'restart', service], capture_output=True, text=True, timeout=10)
-            flash(f'Service {service} enabled and restarted', 'success')
-        except Exception as e:
-            flash(f'Failed to enable/restart service {service}: {e}', 'danger')
-    except Exception as e:
-        flash(f'Failed to save config for {iface}: {e}', 'danger')
+            start_ip = ipaddress.IPv4Address(dhcp_start)
+            end_ip = ipaddress.IPv4Address(dhcp_end)
+        except Exception:
+            flash('DHCP start/end must be valid IPv4 addresses', 'warning')
+            return redirect(url_for('lan.index'))
+        if start_ip not in net or end_ip not in net:
+            flash('DHCP range must fall inside the subnet', 'warning')
+            return redirect(url_for('lan.index'))
+        if end_ip < start_ip:
+            flash('DHCP end must be >= start', 'warning')
+            return redirect(url_for('lan.index'))
+
+    eth_members = f.getlist('eth_members')
+
+    # Build the new bridge on a fresh on-disk model. Keep the existing wifi_ap
+    # members — those are owned by the WiFi page, don't clobber them.
+    cfg = netconfig.load()
+    old_entry = next((l for l in cfg.get('lans') or [] if l.get('name') == orig_name), None) if orig_name else None
+    wifi_ap = list(((old_entry or {}).get('members') or {}).get('wifi_ap') or [])
+
+    entry = {
+        'name': name,
+        'subnet': subnet_str,
+        'gateway': gateway,
+        'dhcp': {
+            'enabled': dhcp_enabled,
+            'start': dhcp_start,
+            'end': dhcp_end,
+            'lease': lease,
+        },
+        'dns_upstream': list((old_entry or {}).get('dns_upstream') or ['8.8.8.8', '1.1.1.1']),
+        'members': {'eth': eth_members, 'wifi_ap': wifi_ap},
+        'stp': bool((old_entry or {}).get('stp', False)),
+    }
+
+    # Lockout guard: bail if this edit would move the admin off the bridge they
+    # came in on, unless they've ticked the confirm box.
+    old_model = netconfig.load()
+    zone = netconfig.ingress_zone(request.remote_addr, old_model)
+    target = orig_name or name
+    if zone == target and not f.get('confirm_disruptive'):
+        flash(f"This edit changes bridge '{target}', which you're connected through — "
+              "it may drop your connection. Resubmit with the confirm box ticked.", 'warning')
+        return redirect(url_for('lan.index'))
+
+    lans = cfg.setdefault('lans', [])
+    if old_entry is not None:
+        lans[lans.index(old_entry)] = entry
+    else:
+        lans.append(entry)
+
+    # Validate the whole model first; fatal errors abort without applying.
+    errs = netconfig.validate(cfg)
+    fatal = [e for e in errs if not e.startswith('WARN')]
+    if fatal:
+        for e in fatal:
+            flash(e, 'danger')
+        return redirect(url_for('lan.index'))
+
+    res = netconfig.apply(cfg)
+    _flash_apply_result(res)
+    if not [e for e in res.get('errors') or [] if not e.startswith('WARN')]:
+        flash(f"Bridge '{name}' saved", 'success')
+    return redirect(url_for('lan.index'))
+
+
+@lan_bp.route('/bridge/<name>/delete', methods=['POST'])
+@login_required
+def bridge_delete(name):
+    """Drop a bridge from the model and apply."""
+    cfg = netconfig.load()
+    entry = next((l for l in cfg.get('lans') or [] if l.get('name') == name), None)
+    if entry is None:
+        flash(f"No such bridge '{name}'", 'warning')
+        return redirect(url_for('lan.index'))
+
+    # Same lockout guard as edit — don't let them delete the bridge under them
+    # without an explicit ack.
+    zone = netconfig.ingress_zone(request.remote_addr, cfg)
+    if zone == name and not request.form.get('confirm_disruptive'):
+        flash(f"Deleting bridge '{name}' will drop your connection — "
+              "resubmit with the confirm box ticked.", 'warning')
+        return redirect(url_for('lan.index'))
+
+    cfg['lans'].remove(entry)
+    res = netconfig.apply(cfg)
+    _flash_apply_result(res)
+    if not [e for e in res.get('errors') or [] if not e.startswith('WARN')]:
+        flash(f"Bridge '{name}' deleted", 'success')
     return redirect(url_for('lan.index'))
