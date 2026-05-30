@@ -391,6 +391,29 @@ def _write_file(path, contents, mode=0o644):
     os.replace(tmp, path)
 
 
+def _file_differs(path, contents):
+    """True if path is missing or its content differs — i.e. a write would change it."""
+    try:
+        with open(path) as f:
+            return f.read() != contents
+    except Exception:
+        return True
+
+
+def _iface_exists(iface):
+    return _run(['ip', 'link', 'show', 'dev', iface])['rc'] == 0
+
+
+def _is_up(iface):
+    """True if the interface exists and is administratively UP (the flag, not operstate)."""
+    res = _run(['ip', 'link', 'show', 'dev', iface])
+    if res['rc'] != 0 or not res['stdout']:
+        return False
+    head = res['stdout'].splitlines()[0]
+    flags = head[head.find('<') + 1:head.find('>')] if '<' in head and '>' in head else ''
+    return 'UP' in flags.split(',')
+
+
 def _managed_files_on_disk():
     """Every file we manage that currently exists on disk."""
     found = []
@@ -421,26 +444,33 @@ def _live_bridges():
 # teardown
 # --------------------------------------------------------------------------- #
 
-def teardown(prev_model):
-    """Stop services + ifdown for everything the previous model brought up.
+def teardown(prev_model, model):
+    """Stop services + ifdown ONLY for things removed (or role-changed) vs `model`.
 
-    Best effort: never raises. Does not delete files (apply() reconciles files
-    separately so it can tell removed-from-model apart from rewritten).
+    Scoped on purpose: a blanket teardown would bounce every interface on every
+    apply. Rewritten/unchanged interfaces are reconciled by apply()'s bring-up.
+    Best effort; never raises. Does not delete files.
     """
     actions = []
     prev = prev_model or {}
+    new_lans = {lan['name'] for lan in _lans(model)}
+    new_ap = {w for w, c in _wifi(model).items() if c.get('mode') == 'ap'}
+    new_wan = set(_wan_ifaces(model))
 
+    # bridges dropped from the model
     for lan in _lans(prev):
-        name = lan['name']
-        actions.append(sctl('stop', 'border0-dnsmasq@%s.service' % name))
-        actions.append(_run(['ifdown', name]))
+        if lan['name'] not in new_lans:
+            actions.append(sctl('stop', 'border0-dnsmasq@%s.service' % lan['name']))
+            actions.append(_run(['ifdown', lan['name']]))
 
+    # wlans that were APs but aren't anymore (removed / switched to client/off)
     for wlan, cfg in _wifi(prev).items():
-        if cfg.get('mode') == 'ap':
-            actions.append(sctl('stop', 'hostapd@%s' % wlan))
+        if cfg.get('mode') == 'ap' and wlan not in new_ap:
+            actions.append(sctl('disable', '--now', 'hostapd@%s' % wlan))
 
+    # wan ifaces removed from the zone entirely
     for w in _wan(prev).get('interfaces', []):
-        if w.get('iface'):
+        if w.get('iface') and w['iface'] not in new_wan:
             actions.append(_run(['ifdown', w['iface']]))
 
     return actions
@@ -487,12 +517,14 @@ def apply(model, dry_run=False):
         result['planned'].append({'ifup_wan': sorted(new_wan)})
         return result
 
-    # 1) teardown previous world
-    result['actions'].extend(teardown(prev))
+    # 1) tear down only what's removed/role-changed vs the new model
+    result['actions'].extend(teardown(prev, model))
 
-    # 2) delete removed bridges + stale managed files
+    # 2) delete removed bridges (ifdown above usually already dropped them) +
+    # stale managed files
     for b in removed_bridges:
-        result['actions'].append(_run(['ip', 'link', 'del', b]))
+        if _iface_exists(b):
+            result['actions'].append(_run(['ip', 'link', 'del', b]))
     for p in stale:
         try:
             os.remove(p)
@@ -500,37 +532,71 @@ def apply(model, dry_run=False):
         except Exception as e:
             result['actions'].append({'cmd': ['rm', p], 'rc': -1, 'stderr': str(e)})
 
-    # 3) write all new files atomically (firewall.sh executable)
+    # 3) write all new files atomically (firewall.sh executable). Track which
+    # iface confs actually changed so we only bounce interfaces that need it —
+    # no dropping a working uplink or every LAN on an unrelated save.
+    changed_ifaces = set()
+    changed_hostapd = set()
+    changed_dnsmasq = set()
     for path, contents in rendered.items():
         mode = 0o755 if path == FIREWALL_PATH else 0o644
+        if _file_differs(path, contents):
+            stem = os.path.splitext(os.path.basename(path))[0]
+            if path.startswith(INTERFACES_DIR + '/'):
+                changed_ifaces.add(stem)
+            elif path.startswith(HOSTAPD_DIR + '/'):
+                changed_hostapd.add(stem)
+            elif path.startswith(DNSMASQ_DIR + '/') and stem.startswith('border0-'):
+                changed_dnsmasq.add(stem[len('border0-'):])
         _write_file(path, contents, mode=mode)
 
     # 4) reload units (the dnsmasq template instance may have changed)
     result['actions'].append(sctl('daemon-reload'))
 
-    # 5) bring up bridges + per-bridge dnsmasq. The unit is hook-driven (not
-    # enabled), but restart it explicitly here too: an ifup on an already-up
-    # bridge is a no-op and won't re-run the post-up hook, so a DHCP-only change
-    # would otherwise be missed.
+    # 5) bring up bridges + per-bridge dnsmasq. Bounce a bridge only if its conf
+    # changed or it isn't up; restart dnsmasq regardless so a DHCP-only change
+    # still lands (ifup is a no-op on an unchanged, already-up bridge and so
+    # wouldn't re-run the post-up hook).
     for lan in _lans(model):
         name = lan['name']
-        result['actions'].append(_run(['ifup', name]))
-        result['actions'].append(sctl('restart', 'border0-dnsmasq@%s' % name))
+        bounced = False
+        if name in changed_ifaces:
+            result['actions'].append(_run(['ifdown', name]))
+            result['actions'].append(_run(['ifup', name]))
+            bounced = True
+        elif not _is_up(name):
+            result['actions'].append(_run(['ifup', name]))
+            bounced = True
+        if bounced or name in changed_dnsmasq:
+            result['actions'].append(sctl('restart', 'border0-dnsmasq@%s' % name))
 
-    # 6) start AP wlans
+    # 6) start AP wlans. hostapd reads bridge= only at start, so restart any AP
+    # whose conf changed; otherwise just ensure it's enabled and running.
     for wlan in sorted(new_ap_wlans):
         result['actions'].append(sctl('enable', '--now', 'hostapd@%s' % wlan))
+        if wlan in changed_hostapd:
+            result['actions'].append(sctl('restart', 'hostapd@%s' % wlan))
 
-    # 7) uplinks: active first, then any other auto wan
+    # 7) uplinks: exactly one (the active) is up. Bounce changed-or-down active;
+    # force any non-active uplink down. Leave a working unchanged uplink alone so
+    # we don't drop internet on every save.
     active = _wan(model).get('active')
-    if active:
-        result['actions'].append(_run(['ifup', active]))
     for w in _wan_ifaces(model):
-        if w != active:
-            result['actions'].append(_run(['ifup', w]))
+        if w == active:
+            if w in changed_ifaces:
+                result['actions'].append(_run(['ifdown', w]))
+                result['actions'].append(_run(['ifup', w]))
+            elif not _is_up(w):
+                result['actions'].append(_run(['ifup', w]))
+        elif _is_up(w):
+            result['actions'].append(_run(['ifdown', w]))
 
     # 8) firewall once more, now that everything's up
     result['actions'].append(_run([FIREWALL_PATH, 'apply']))
+
+    # persist the applied model as the new source of truth (callers pass the new
+    # model in; do NOT save() before apply or teardown can't see the delta)
+    save(model)
 
     return result
 
