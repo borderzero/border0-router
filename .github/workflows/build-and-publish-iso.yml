@@ -1,7 +1,16 @@
 name: Build and Publish Raspberry Pi ISO
 
+# Push a semver tag (vX.Y.Z) -> build the ISO stamped with that version and
+# publish a GitHub Release with the image attached. workflow_dispatch still works
+# for ad-hoc test builds, but those only upload an artifact -- no tag, no release.
 on:
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-and-publish:
@@ -9,11 +18,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need tags for `git describe` on non-tag builds
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user-static qemu-utils xz-utils
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/}"
+          else
+            version="$(git describe --tags --match 'v*' --always --dirty)"
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Building version: $version"
 
       - name: Create iso directory
         run: |
@@ -26,7 +48,6 @@ jobs:
           pwd
           ls -lha
 
-
       - name: Build custom ISO
         working-directory: build
         run: |
@@ -34,43 +55,26 @@ jobs:
           ls ../iso -lha
           ls -lha
           chmod +x build_iso.sh
-          sudo env CREATE_XZ=true ./build_iso.sh
+          sudo env CREATE_XZ=true VERSION="${{ steps.ver.outputs.version }}" ./build_iso.sh
 
       - name: Locate compressed image
         id: find_image
         run: |
           img=$(ls iso/*-border0-*.img.xz | head -n1)
           echo "path=$img" >> $GITHUB_OUTPUT
-          echo "name=$(basename \"$img\")" >> $GITHUB_OUTPUT
-      - name: Determine branch tag
-        id: branch_tag
-        run: |
-          branch=${GITHUB_REF#refs/heads/}
-          if [ "$branch" = "main" ]; then tag=stable; else tag=$branch; fi
-          echo "tag=$tag" >> $GITHUB_OUTPUT
-
-      - name: Rename ISO asset
-        id: rename_image
-        run: |
-          old_path=${{ steps.find_image.outputs.path }}
-          dir=$(dirname "$old_path")
-          base=$(basename "$old_path")
-          name=${base%.img.xz}
-          new_name="${name}-${{ steps.branch_tag.outputs.tag }}.img.xz"
-          mv "$old_path" "$dir/$new_name"
-          echo "path=$dir/$new_name" >> $GITHUB_OUTPUT
-          echo "name=$new_name" >> $GITHUB_OUTPUT
+          echo "name=$(basename "$img")" >> $GITHUB_OUTPUT
 
       - name: Generate release notes
         id: release_notes
         run: |
-          img="${{ steps.rename_image.outputs.path }}"
+          img="${{ steps.find_image.outputs.path }}"
           sha256=$(sha256sum "$img" | awk '{print $1}')
           size=$(du -h "$img" | cut -f1)
           echo "body<<EOF" >> $GITHUB_OUTPUT
           echo "## Raspberry Pi ISO" >> $GITHUB_OUTPUT
           echo "" >> $GITHUB_OUTPUT
-          echo "**Filename:** ${{ steps.rename_image.outputs.name }}" >> $GITHUB_OUTPUT
+          echo "**Version:** ${{ steps.ver.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "**Filename:** ${{ steps.find_image.outputs.name }}" >> $GITHUB_OUTPUT
           echo "**Size:** $size" >> $GITHUB_OUTPUT
           echo "**SHA256:** \`$sha256\`" >> $GITHUB_OUTPUT
           echo "" >> $GITHUB_OUTPUT
@@ -88,24 +92,20 @@ jobs:
           echo "[Documentation](https://github.com/borderzero/border0-router#readme) | [Support](https://github.com/borderzero/border0-router/issues)" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Tag push -> publish a Release with the ISO attached.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          release_name: "Raspberry Pi ISO Build #${{ github.run_number }}"
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           body: ${{ steps.release_notes.outputs.body }}
-          draft: false
-          prerelease: false
+          files: ${{ steps.find_image.outputs.path }}
 
-      - name: Upload ISO asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Manual dispatch -> just hand back the image, don't pollute Releases/tags.
+      - name: Upload ISO artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.rename_image.outputs.path }}
-          asset_name: ${{ steps.rename_image.outputs.name }}
-          asset_content_type: application/octet-stream
+          name: ${{ steps.find_image.outputs.name }}
+          path: ${{ steps.find_image.outputs.path }}

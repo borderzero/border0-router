@@ -39,8 +39,14 @@ help: ## Display this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build-iso
-build-iso: ## Build the ISO image (optional: VERSION=1.4.0 to stamp the image)
+build-iso: ## Build the ISO image (optional: VERSION=v2.0.0 to stamp the image)
 	cd build && sudo -E VERSION="$(VERSION)" ./build_iso.sh
+
+.PHONY: release
+release: ## Cut a release: make release VERSION=v2.0.0 (tags & pushes; CI builds + publishes)
+	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "VERSION must be vX.Y.Z (got '$(VERSION)')"; exit 1; }
+	git tag -a "$(VERSION)" -m "$(VERSION)"
+	git push origin "$(VERSION)"
 
 .PHONY: download-iso
 download-iso: ## Download the ISO image

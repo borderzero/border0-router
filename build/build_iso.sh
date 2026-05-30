@@ -10,9 +10,6 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# timestamp
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M)
-
 # ========= CONFIGURATION =========
 
 # Dynamically detect the stock Raspberry Pi OS image in the ../iso directory.
@@ -24,15 +21,19 @@ fi
 ISO_BASE=$(basename "${STOCK_ISO_XZ}" .img.xz)
 IMG_XZ="../iso/${ISO_BASE}.img.xz"
 IMG="../iso/${ISO_BASE}.img"
-BORDER0_IMG="../iso/${ISO_BASE}-border0-${TIMESTAMP}.img"
 
 # Image version metadata, baked into the image so a running device can report
-# which build it is. VERSION may be passed in (e.g. `make build-iso VERSION=1.4.0`);
-# falls back to `git describe` so unattended builds still get a traceable string.
-IMAGE_VERSION="${VERSION:-$(git -C .. describe --tags --always --dirty 2>/dev/null || echo dev)}"
+# which build it is. VERSION may be passed in (e.g. `make build-iso VERSION=v2.0.0`,
+# or the release tag from CI); falls back to `git describe` — matching only `v*`
+# tags so the legacy `build-N` junk tags don't leak into the version string.
+IMAGE_VERSION="${VERSION:-$(git -C .. describe --tags --match 'v*' --always --dirty 2>/dev/null || echo dev)}"
 GIT_COMMIT="$(git -C .. rev-parse --short HEAD 2>/dev/null || echo unknown)"
 GIT_BRANCH="$(git -C .. rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Output image named by version, not build timestamp. (slashes sanitized in case
+# a branch-y `git describe` string sneaks through.)
+BORDER0_IMG="../iso/${ISO_BASE}-border0-${IMAGE_VERSION//\//-}.img"
 
 # Directories containing your additional files; adjust as needed.
 SYSTEMD_UNITS_SRC="./templates"
