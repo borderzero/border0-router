@@ -39,13 +39,10 @@ BORDER0_IMG="../iso/${ISO_BASE}-border0-${IMAGE_VERSION//\//-}.img"
 SYSTEMD_UNITS_SRC="./templates"
 
 # List additional packages to install (space separated)
-EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq openssh-server"
+# bridge-utils: ifupdown bridge support; wpasupplicant: wifi client (STA) mode.
+EXTRA_PKGS="hostapd iptables dnsmasq tcpdump jq openssh-server bridge-utils wpasupplicant"
 # List unwanted packages to remove (space separated)
 REMOVE_PKGS="modemmanager rsyslog"
-
-# Default LAN/WAN interface names, override via environment variables
-DEFAULT_LAN_IFACE="${DEFAULT_LAN_IFACE:-wlan0}"
-DEFAULT_WAN_IFACE="${DEFAULT_WAN_IFACE:-eth0}"
 # ==================================
 
 # Mount point directories (fresh temp dir each run; cleaned up on exit)
@@ -193,6 +190,7 @@ echo "Copying systemd unit files into the image..."
 cp -v "${SYSTEMD_UNITS_SRC}/border0-webui.service" "${MNT_ROOT}/etc/systemd/system/border0-webui.service"
 cp -v "${SYSTEMD_UNITS_SRC}/border0-device.service" "${MNT_ROOT}/etc/systemd/system/border0-device.service"
 cp -v "${SYSTEMD_UNITS_SRC}/border0-metrics.service" "${MNT_ROOT}/etc/systemd/system/border0-metrics.service"
+cp -v "${SYSTEMD_UNITS_SRC}/border0-dnsmasq@.service" "${MNT_ROOT}/etc/systemd/system/border0-dnsmasq@.service"
 
 
 # 5. Create a modification script inside the chroot.
@@ -208,8 +206,6 @@ apt-get install -y PACKAGE_LIST_PLACEHOLDER
 
 # Remove unwanted packages.
 apt-get remove -y UNWANTED_PKGS_PLACEHOLDER
-
-cp /opt/border0/templates/hostapd.conf.default /etc/hostapd/wlan0.conf
 
 apt-get purge -y man-db manpages manpages-posix libx11-doc
 
@@ -229,28 +225,29 @@ iface lo inet loopback
 source /etc/network/interfaces.d/*
 """ > /etc/network/interfaces
 
-echo """
-allow-hotplug eth0
-auto eth0
-iface eth0 inet dhcp
-""" > /etc/network/interfaces.d/eth0.conf
-
-echo """
-allow-hotplug wlan0
-auto wlan0
-iface wlan0 inet static
-    pre-up /usr/sbin/rfkill unblock wlan
-    post-up /usr/sbin/dnsmasq -I lo -i wlan0 --bind-interfaces -K -z -F wlan0,192.168.42.10,192.168.42.250,5m --dhcp-option=3,192.168.42.1 --dhcp-option=6,192.168.42.1 --address=/gateway.border0/10.10.10.10 --log-dhcp --log-facility=/var/log/dnsmasq_wlan0.log
-    post-up /sbin/iptables -t nat -A POSTROUTING -s 192.168.42.0/24 -o eth+ -j MASQUERADE
-    post-up /sbin/iptables -t nat -A POSTROUTING -s 192.168.42.0/24 -o utun+ -j MASQUERADE
-    post-down /sbin/iptables -t nat -D POSTROUTING -s 192.168.42.0/24 -o eth+ -j MASQUERADE
-    post-down /sbin/iptables -t nat -D POSTROUTING -s 192.168.42.0/24 -o utun+ -j MASQUERADE
-    address 192.168.42.1
-    netmask 255.255.255.0
-    # gateway 192.168.42.1
-    # dns-nameservers 208.67.220.220
-    broadcast 192.168.42.255
-""" > /etc/network/interfaces.d/wlan0.conf
+# Default declarative network model. The apply engine (run after webui setup,
+# below) renders this into the actual bridge/wan/hostapd/dnsmasq/firewall configs.
+# Out of the box: one LAN bridge (lan0) holding the wlan0 AP "border0" (open, as
+# before — secure it from the UI), eth0 as the WAN uplink.
+mkdir -p /etc/border0
+cat > /etc/border0/network.json <<'NETJSON'
+{
+  "version": 1,
+  "lans": [
+    {
+      "name": "lan0",
+      "subnet": "192.168.42.0/24",
+      "gateway": "192.168.42.1",
+      "dhcp": {"enabled": true, "start": "192.168.42.10", "end": "192.168.42.250", "lease": "4h"},
+      "dns_upstream": ["8.8.8.8", "1.1.1.1"],
+      "members": {"eth": [], "wifi_ap": ["wlan0"]},
+      "stp": false
+    }
+  ],
+  "wan": {"interfaces": [{"iface": "eth0", "mode": "dhcp"}], "active": "eth0"},
+  "wifi": {"wlan0": {"mode": "ap", "ssid": "border0", "psk": "", "band": "a", "channel": "36"}}
+}
+NETJSON
 
 echo """
 auto dummy0
@@ -271,8 +268,10 @@ USER=root
 
 echo "Copying border0 config files into the image..."
 mkdir -p /etc/border0
-echo "wlan0" > /etc/border0/lan_interface 
-echo "eth0" > /etc/border0/wan_interface 
+# Compat shim for the few readers still on the old single-iface files
+# (auth factory-reset). The real model is /etc/border0/network.json.
+echo "lan0" > /etc/border0/lan_interface
+echo "eth0" > /etc/border0/wan_interface
 
 sync
 
@@ -308,13 +307,22 @@ echo "Running webui setup script..."
 cd /opt/border0/webui
 ./setup.sh
 
-echo "Copy all files to /opt/border0/defaults for factory reset restoration"
+# Render the seeded network.json into real configs using the apply engine, so the
+# baked image can't drift from the templates. Needs the venv (just built above).
+echo "Rendering default network config from /etc/border0/network.json..."
+cd /opt/border0/webui
+venv/bin/python3 -m gateway_admin.netconfig render --write
+
+echo "Copy default config to /opt/border0/defaults for factory reset restoration"
 mkdir -p /opt/border0/defaults/etc/network/interfaces.d
 mkdir -p /opt/border0/defaults/etc/hostapd
-cp -rv /etc/network/interfaces.d/dummy0.conf /opt/border0/defaults/etc/network/interfaces.d/dummy0.conf
-cp -rv /etc/network/interfaces.d/wlan0.conf /opt/border0/defaults/etc/network/interfaces.d/wlan0.conf
-cp -rv /etc/network/interfaces.d/eth0.conf /opt/border0/defaults/etc/network/interfaces.d/eth0.conf
-cp -rv /etc/hostapd/wlan0.conf /opt/border0/defaults/etc/hostapd/wlan0.conf
+mkdir -p /opt/border0/defaults/etc/dnsmasq.d
+mkdir -p /opt/border0/defaults/etc/border0
+cp -v /etc/border0/network.json /opt/border0/defaults/etc/border0/network.json
+cp -v /etc/border0/firewall.sh /opt/border0/defaults/etc/border0/firewall.sh
+cp -v /etc/network/interfaces.d/*.conf /opt/border0/defaults/etc/network/interfaces.d/
+cp -v /etc/hostapd/*.conf /opt/border0/defaults/etc/hostapd/ 2>/dev/null || true
+cp -v /etc/dnsmasq.d/border0-*.conf /opt/border0/defaults/etc/dnsmasq.d/ 2>/dev/null || true
 
 
 
@@ -325,9 +333,6 @@ EOF
 # Replace placeholders with actual package lists.
 sed -i "s/PACKAGE_LIST_PLACEHOLDER/${EXTRA_PKGS}/g" "${CHROOT_SCRIPT}"
 sed -i "s/UNWANTED_PKGS_PLACEHOLDER/${REMOVE_PKGS}/g" "${CHROOT_SCRIPT}"
-# Override default LAN/WAN interface in chroot modification script
-sed -i "s|echo \"wlan0\".*|echo \"${DEFAULT_LAN_IFACE}\" > /etc/border0/lan_interface|" "${CHROOT_SCRIPT}"
-sed -i "s|echo \"eth0\".*|echo \"${DEFAULT_WAN_IFACE}\" > /etc/border0/wan_interface|" "${CHROOT_SCRIPT}"
 
 chmod +x "${CHROOT_SCRIPT}"
 
@@ -369,13 +374,10 @@ fi
 # # and then run the modification script with the following command:
 # # /tmp/chroot_mod.sh
 
-echo "Copying border0 config files into the image..."
-mkdir -p "${MNT_ROOT}/etc/border0"
-echo "wlan0" > "${MNT_ROOT}/etc/border0/lan_interface"
-echo "eth0" > "${MNT_ROOT}/etc/border0/wan_interface"
-
-echo "lan_interface: $(cat "${MNT_ROOT}/etc/border0/lan_interface")"
-echo "wan_interface: $(cat "${MNT_ROOT}/etc/border0/wan_interface")"
+# Network config (network.json + rendered files + compat shim) is written inside
+# the chroot above; nothing to do here.
+echo "Default network model:"
+cat "${MNT_ROOT}/etc/border0/network.json" 2>/dev/null || echo "  (missing — check the render step)"
 
 # if INSTALL_LOCAL_SSH_KEY is true install ssh key from ~/.ssh/id_ed25519.pub into authorized_keys
 if [ "${INSTALL_LOCAL_SSH_KEY:-false}" = "true" ]; then
