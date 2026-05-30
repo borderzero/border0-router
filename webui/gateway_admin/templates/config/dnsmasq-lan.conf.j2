@@ -1,0 +1,14 @@
+# managed-by: border0-netconfig
+interface={{ lan }}
+bind-interfaces
+except-interface=lo
+dhcp-authoritative
+dhcp-range={{ start }},{{ end }},{{ lease }}
+dhcp-option=3,{{ gateway }}
+dhcp-option=6,{{ gateway }}
+{% for ip in dns_upstream %}server={{ ip }}
+{% endfor %}no-resolv
+address=/gateway.border0/10.10.10.10
+log-dhcp
+log-facility=/var/log/dnsmasq_{{ lan }}.log
+pid-file=/run/dnsmasq_{{ lan }}.pid

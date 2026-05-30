@@ -1,0 +1,11 @@
+# managed-by: border0-netconfig
+{% if active %}auto {{ iface }}
+{% endif %}allow-hotplug {{ iface }}
+{% if mode == 'static' %}iface {{ iface }} inet static
+    address {{ address }}
+    netmask {{ netmask }}
+{% if gateway %}    gateway {{ gateway }}
+{% endif %}{% if dns %}    dns-nameservers {{ dns }}
+{% endif %}{% else %}iface {{ iface }} inet dhcp
+{% if is_wlan_client %}    wpa-conf /etc/wpa_supplicant/wpa_supplicant-{{ iface }}.conf
+{% endif %}{% endif %}    post-up /etc/border0/firewall.sh apply

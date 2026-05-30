@@ -1,0 +1,79 @@
+#!/bin/bash
+# managed-by: border0-netconfig
+# Border0 router firewall. Idempotent: all our rules live in dedicated chains
+# (BORDER0_NAT / BORDER0_FWD) so re-applying just flushes and rebuilds them
+# without trampling anything else on the box.
+set -u
+
+IPT=/sbin/iptables
+NAT_CHAIN=BORDER0_NAT
+FWD_CHAIN=BORDER0_FWD
+
+ACTIVE_WAN="{{ active_wan or '' }}"
+LAN_SUBNETS=({% for s in lan_subnets %}"{{ s }}" {% endfor %})
+WAN_IFACES=({% for w in wan_ifaces %}"{{ w }}" {% endfor %})
+
+# create chain if missing, else flush it
+ensure_chain() {
+    local table=$1 chain=$2
+    $IPT -t "$table" -L "$chain" -n >/dev/null 2>&1 \
+        && $IPT -t "$table" -F "$chain" \
+        || $IPT -t "$table" -N "$chain"
+}
+
+# ensure exactly one jump from the parent chain into ours
+ensure_jump() {
+    local table=$1 parent=$2 chain=$3
+    while $IPT -t "$table" -C "$parent" -j "$chain" 2>/dev/null; do
+        $IPT -t "$table" -D "$parent" -j "$chain"
+    done
+    $IPT -t "$table" -A "$parent" -j "$chain"
+}
+
+remove_jumps() {
+    local table=$1 parent=$2 chain=$3
+    while $IPT -t "$table" -C "$parent" -j "$chain" 2>/dev/null; do
+        $IPT -t "$table" -D "$parent" -j "$chain"
+    done
+}
+
+flush() {
+    remove_jumps nat POSTROUTING "$NAT_CHAIN"
+    remove_jumps filter FORWARD "$FWD_CHAIN"
+    $IPT -t nat -F "$NAT_CHAIN" 2>/dev/null || true
+    $IPT -t nat -X "$NAT_CHAIN" 2>/dev/null || true
+    $IPT -t filter -F "$FWD_CHAIN" 2>/dev/null || true
+    $IPT -t filter -X "$FWD_CHAIN" 2>/dev/null || true
+}
+
+apply() {
+    ensure_chain nat "$NAT_CHAIN"
+    ensure_chain filter "$FWD_CHAIN"
+
+    # NAT: masquerade each LAN out the active uplink and the Border0 VPN (utun+)
+    for sub in "${LAN_SUBNETS[@]}"; do
+        [ -n "$ACTIVE_WAN" ] && $IPT -t nat -A "$NAT_CHAIN" -s "$sub" -o "$ACTIVE_WAN" -j MASQUERADE
+        $IPT -t nat -A "$NAT_CHAIN" -s "$sub" -o utun+ -j MASQUERADE
+    done
+
+    # FORWARD: keep established flows, let LANs talk to each other and out.
+    $IPT -t filter -A "$FWD_CHAIN" -m state --state ESTABLISHED,RELATED -j ACCEPT
+    for sub in "${LAN_SUBNETS[@]}"; do
+        $IPT -t filter -A "$FWD_CHAIN" -s "$sub" -j ACCEPT
+    done
+    # Never route between two uplinks.
+    for a in "${WAN_IFACES[@]}"; do
+        for b in "${WAN_IFACES[@]}"; do
+            $IPT -t filter -A "$FWD_CHAIN" -i "$a" -o "$b" -j DROP
+        done
+    done
+
+    ensure_jump nat POSTROUTING "$NAT_CHAIN"
+    ensure_jump filter FORWARD "$FWD_CHAIN"
+}
+
+case "${1:-apply}" in
+    apply) apply ;;
+    flush) flush ;;
+    *) echo "usage: $0 {apply|flush}" >&2; exit 2 ;;
+esac

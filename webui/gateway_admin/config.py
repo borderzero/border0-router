@@ -77,6 +77,12 @@ class Config:
         'LOCAL_AUTH_PATH',
         '/etc/border0/local_auth.json'
     )
+    # Declarative network model (bridges, WAN zone, per-radio wifi). Single source
+    # of truth for the apply engine; the UI writes this and nothing else under /etc.
+    NETWORK_CONFIG_PATH = os.environ.get(
+        'NETWORK_CONFIG_PATH',
+        '/etc/border0/network.json'
+    )
     # Path to the image build manifest baked in at ISO-build time by
     # build/build_iso.sh. JSON: {"version", "git_commit", "git_branch",
     # "base_image", "built_at"}. Absent on dev/rsync deploys.

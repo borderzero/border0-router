@@ -1,0 +1,11 @@
+[Unit]
+Description=Border0 dnsmasq for %i
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq -k --conf-file=/etc/dnsmasq.d/border0-%i.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
