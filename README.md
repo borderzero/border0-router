@@ -12,6 +12,7 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
   - [Prerequisites](#prerequisites)
   - [Quick Start](#quick-start)
   - [First Boot & Access](#first-boot--access)
+  - [Networking](#networking)
   - [Web UI Development](#web-ui-development)
   - [Customization & Configuration](#customization--configuration)
   - [Directory Structure](#directory-structure)
@@ -19,7 +20,11 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 
 ## Features
 - Automated image build: injects Border0 CLI, Python Web UI, systemd services
-- Captive-portal Wi-Fi AP (`border0` SSID) with static DHCP/DNS (dnsmasq)
+- Bridge/zone networking like a modern router: multiple LAN bridges, a WAN zone
+  with a selectable active uplink, and WiFi radios that can each be an AP or an
+  upstream client — all driven by one declarative model
+  (see [Networking architecture](docs/networking.md))
+- Per-bridge DHCP/DNS (dnsmasq), NAT, and the `border0`/`gateway.border0` portal
 - VPN configuration without shell: full onboarding via Web UI
 - Background metrics collector for CPU, memory, disk, network (24 h history)
 
@@ -48,7 +53,11 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
 3. Connect a client to the `border0` Wi-Fi SSID.
 4. In your browser, navigate to **http://gateway.border0** or **http://10.10.10.10** or follow the captive portal.
 5. Log in with your Border0 Account credentials.
-6. Configure network interfaces, Border0 VPN(exit-node), view metrics, reboot, upgrade.
+6. Configure network (LAN bridges / WAN zone / WiFi), Border0 VPN (exit-node), view metrics, reboot, upgrade.
+
+Out of the box the image ships one LAN bridge `lan0` (192.168.42.1/24, DHCP) with
+the `wlan0` AP `border0` (open — secure it from the **WiFi** page) and `eth0` as
+the WAN uplink. All of this lives in `/etc/border0/network.json`.
 
 ## Build the Image and Develop locally
 1. Clone the repo:
@@ -79,6 +88,20 @@ Border0 Router transforms a Raspberry Pi into a secure Wi-Fi gateway and captive
    ```</small>
 
 
+## Networking
+
+The network is described declaratively in `/etc/border0/network.json` (LAN
+bridges, the WAN zone, per-radio WiFi mode). An apply engine renders and applies
+the underlying bridge/DHCP/NAT/hostapd/wpa_supplicant config idempotently. The
+web UI only edits `network.json` and never touches `/etc` directly.
+
+Full reference — the model, the schema, what gets rendered, and hardware notes —
+is in **[docs/networking.md](docs/networking.md)**. To apply by hand:
+```bash
+python3 -m gateway_admin.netconfig apply      # reconcile to network.json
+python3 -m gateway_admin.netconfig validate   # check the model
+```
+
 ## Web UI Development
 ```bash
 cd webui
@@ -87,7 +110,11 @@ source venv/bin/activate
 ./run.sh          # launch dev server
 ```
 - Access at `http://localhost:5000`
-- Python code under `webui/gateway_admin/`, static templates under `webui/static/`.
+- Python under `webui/gateway_admin/`; HTML under `webui/templates/`, config
+  templates under `webui/gateway_admin/templates/config/`.
+- `netconfig.py` is the apply engine, `netutils.py` the shared interface
+  discovery/scan/lease helpers. The UI writes `network.json` and calls
+  `netconfig.apply()` — it does not write `/etc` itself.
 
 ## Customization & Configuration
 - Override defaults via environment variables:
@@ -97,24 +124,26 @@ source venv/bin/activate
   export SECRET_KEY=$(openssl rand -hex 16)
   ```
 - To adjust build packages, edit `EXTRA_PKGS` and `REMOVE_PKGS` in `build/build_iso.sh`.
-
-- To override the default LAN/WAN interfaces baked into the image, set the environment variables before building:
-  ```bash
-  export DEFAULT_LAN_IFACE=eth1
-  export DEFAULT_WAN_IFACE=eth0
-  sudo make build-iso
-  ```
+- To change the network the image ships with, edit the default `network.json`
+  seeded in `build/build_iso.sh` (it's rendered into real config at build time by
+  the apply engine). See [docs/networking.md](docs/networking.md).
 
 ## Directory Structure
 ```
-. ├── build        # Image build scripts & systemd templates
-    ├── download_iso.sh
-    ├── build_iso.sh
-    └── templates
-  ├── iso          # Stock & custom Raspberry Pi OS images
-  ├── webui        # Flask admin panel & assets
-  ├── requirements.txt
-  └── Makefile     # Build & deploy shortcuts
+.
+├── build           # Image build scripts & systemd templates
+│   ├── download_iso.sh
+│   ├── build_iso.sh
+│   └── templates   # systemd units (incl. border0-dnsmasq@), hostapd default
+├── docs            # networking.md and other reference docs
+├── iso             # Stock & custom Raspberry Pi OS images
+├── webui           # Flask admin panel & assets
+│   └── gateway_admin
+│       ├── netconfig.py   # declarative network apply engine
+│       ├── netutils.py    # interface discovery / scan / DHCP-lease helpers
+│       └── templates/config  # bridge/wan/hostapd/wpa/dnsmasq/firewall templates
+├── requirements.txt
+└── Makefile        # build-iso, release, deploy shortcuts
 ```
 
 ## Troubleshooting
