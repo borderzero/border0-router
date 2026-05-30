@@ -19,6 +19,7 @@ import tempfile
 import urllib.request
 from ...extensions import login_manager
 from ... import auth_mode
+from ... import image_version
 from ...auth_mode import ANONYMOUS_USER_ID
 # Endpoints that must remain reachable even when the session is being
 # torn down by a mode change, so the user can finish the redirect chain
@@ -1007,6 +1008,7 @@ def system():
     return render_template(
         'auth/system.html',
         uptime=uptime_str,
+        image_version=image_version.read(),
         current_version=current_version,
         update_available=update_available,
         new_version=new_version,

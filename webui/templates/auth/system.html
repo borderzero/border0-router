@@ -142,6 +142,24 @@
       })();
     </script>
 
+    <!-- Image Build Card -->
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="card-title mb-3">Image Build</h2>
+        {% if image_version and image_version.version %}
+        <p class="mb-1"><strong>Version:</strong> {{ image_version.version }}</p>
+        <table class="table table-sm small mb-0">
+          <tbody>
+            {% if image_version.git_commit %}<tr><td class="text-muted">Commit</td><td><code>{{ image_version.git_commit }}</code>{% if image_version.git_branch %} ({{ image_version.git_branch }}){% endif %}</td></tr>{% endif %}
+            {% if image_version.base_image %}<tr><td class="text-muted">Base image</td><td>{{ image_version.base_image }}</td></tr>{% endif %}
+            {% if image_version.built_at %}<tr><td class="text-muted">Built</td><td>{{ image_version.built_at }}</td></tr>{% endif %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">No image manifest found &mdash; this device was provisioned outside the image build (dev/rsync deploy).</p>
+        {% endif %}
+      </div>
+    </div>
     <!-- Software Update Card -->
     <div class="card mb-4">
       <div class="card-body">

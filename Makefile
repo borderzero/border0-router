@@ -39,8 +39,8 @@ help: ## Display this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: build-iso
-build-iso: ## Build the ISO image
-	cd build && sudo -E./build_iso.sh
+build-iso: ## Build the ISO image (optional: VERSION=1.4.0 to stamp the image)
+	cd build && sudo -E VERSION="$(VERSION)" ./build_iso.sh
 
 .PHONY: download-iso
 download-iso: ## Download the ISO image

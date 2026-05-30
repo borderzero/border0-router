@@ -26,6 +26,14 @@ IMG_XZ="../iso/${ISO_BASE}.img.xz"
 IMG="../iso/${ISO_BASE}.img"
 BORDER0_IMG="../iso/${ISO_BASE}-border0-${TIMESTAMP}.img"
 
+# Image version metadata, baked into the image so a running device can report
+# which build it is. VERSION may be passed in (e.g. `make build-iso VERSION=1.4.0`);
+# falls back to `git describe` so unattended builds still get a traceable string.
+IMAGE_VERSION="${VERSION:-$(git -C .. describe --tags --always --dirty 2>/dev/null || echo dev)}"
+GIT_COMMIT="$(git -C .. rev-parse --short HEAD 2>/dev/null || echo unknown)"
+GIT_BRANCH="$(git -C .. rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # Directories containing your additional files; adjust as needed.
 SYSTEMD_UNITS_SRC="./templates"
 
@@ -163,6 +171,20 @@ cp -v ../requirements.txt "${MNT_ROOT}/opt/border0/"
 # copy ../templates into opt/border0/templates
 echo "Copying templates into the image..."
 cp -rv "./templates" "${MNT_ROOT}/opt/border0/templates"
+
+# Bake the image version manifest. The web UI reads this from /etc/border0 to
+# show the build on the System page. Written from the host so we have git info.
+echo "Writing image version manifest (version=${IMAGE_VERSION}, commit=${GIT_COMMIT})..."
+mkdir -p "${MNT_ROOT}/etc/border0"
+cat > "${MNT_ROOT}/etc/border0/image_version.json" <<JSON
+{
+  "version": "${IMAGE_VERSION}",
+  "git_commit": "${GIT_COMMIT}",
+  "git_branch": "${GIT_BRANCH}",
+  "base_image": "${ISO_BASE}",
+  "built_at": "${BUILT_AT}"
+}
+JSON
 
 
 # copy the border0 systemd unit file into the chroot

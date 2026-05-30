@@ -77,6 +77,13 @@ class Config:
         'LOCAL_AUTH_PATH',
         '/etc/border0/local_auth.json'
     )
+    # Path to the image build manifest baked in at ISO-build time by
+    # build/build_iso.sh. JSON: {"version", "git_commit", "git_branch",
+    # "base_image", "built_at"}. Absent on dev/rsync deploys.
+    IMAGE_VERSION_PATH = os.environ.get(
+        'IMAGE_VERSION_PATH',
+        '/etc/border0/image_version.json'
+    )
     # Path where historical metrics are logged (JSON lines, timestamp in ms)
     METRICS_LOG_PATH = os.environ.get(
         'METRICS_LOG_PATH',
