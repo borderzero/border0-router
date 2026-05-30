@@ -18,6 +18,37 @@ DEFAULT_LAN_STATIC_CFG = {
     'broadcast': '192.168.42.255'
 }
 
+# Selectable Wi-Fi channels per band. 5 GHz is restricted to non-DFS channels
+# because the AP config runs with ieee80211h=0 — DFS channels (52-144) need
+# radar handling we don't enable. ACS (channel=0) is intentionally NOT offered:
+# the Pi's WiFi drivers (brcmfmac, rtw_8821cu) don't implement the nl80211
+# survey it needs, so it starts and then silently fails to bring up the AP.
+CHANNELS_2G = [str(c) for c in range(1, 12)]                  # 1-11 (US)
+CHANNELS_5G = ['36', '40', '44', '48', '149', '153', '157', '161']
+DEFAULT_CHANNEL = {'g': '6', 'a': '36'}
+# VHT 80 MHz center-frequency segment index per 5 GHz channel: the center of
+# the 80 MHz block the channel belongs to (36-48 -> 42, 149-161 -> 155). A
+# channel must set this to match its block or the radio won't come up.
+VHT80_SEG0 = {
+    '36': '42', '40': '42', '44': '42', '48': '42',
+    '149': '155', '153': '155', '157': '155', '161': '155',
+}
+
+
+def _allowed_channels(hw_mode):
+    return CHANNELS_2G if hw_mode == 'g' else CHANNELS_5G
+
+
+def _display_channel(raw, hw_mode):
+    """Return a valid channel to preselect in the UI for a stored config.
+
+    Falls back to the band default if the stored value is empty/invalid (e.g.
+    channel=0 left by an old ACS config, or a DFS channel we no longer list).
+    """
+    band = hw_mode if hw_mode in ('g', 'a') else 'g'
+    raw = (raw or '').strip()
+    return raw if raw in _allowed_channels(band) else DEFAULT_CHANNEL[band]
+
 @lan_bp.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
@@ -209,7 +240,7 @@ def index():
             continue
         if os.path.isdir(os.path.join(net_dir, iface, 'wireless')):
             cfg_file = os.path.join(hostapd_dir, f"{iface}.conf")
-            ssid = hw_mode = wpa_passphrase = ''
+            ssid = hw_mode = wpa_passphrase = channel = ''
             if os.path.isfile(cfg_file):
                 try:
                     with open(cfg_file) as f:
@@ -224,6 +255,8 @@ def index():
                                 hw_mode = v
                             elif k == 'wpa_passphrase':
                                 wpa_passphrase = v
+                            elif k == 'channel':
+                                channel = v
                 except Exception:
                     pass
             try:
@@ -246,6 +279,7 @@ def index():
                 'ssid': ssid,
                 'hw_mode': hw_mode,
                 'wpa_passphrase': wpa_passphrase,
+                'channel': _display_channel(channel, hw_mode),
                 'stats': stats,
                 'service_enabled': service_enabled,
                 'service_active': service_active
@@ -266,7 +300,9 @@ def index():
         wan_iface=wan_iface,
         wifi_interfaces=wifi_interfaces,
         hw_modes=HW_MODES,
-        hw_mode_labels=hw_mode_labels
+        hw_mode_labels=hw_mode_labels,
+        channels_2g=CHANNELS_2G,
+        channels_5g=CHANNELS_5G
     )
  
 @lan_bp.route('/wifi/<iface>', methods=['POST'])
@@ -301,6 +337,7 @@ def wifi_save(iface):
     ssid = request.form.get('ssid', '').strip()
     hw_mode = request.form.get('hw_mode', '').strip()
     wpa_passphrase = request.form.get('wpa_passphrase', '').strip()
+    channel = request.form.get('channel', '').strip()
     if not ssid:
         flash(f'SSID must not be empty for {iface}', 'warning')
         return redirect(url_for('lan.index'))
@@ -310,13 +347,23 @@ def wifi_save(iface):
     if len(wpa_passphrase) < 8:
         flash(f'Passphrase must be at least 8 characters for {iface}', 'warning')
         return redirect(url_for('lan.index'))
+    if channel not in _allowed_channels(hw_mode):
+        band = '2.4 GHz' if hw_mode == 'g' else '5 GHz'
+        flash(f'Invalid channel {channel} for {band} on {iface}', 'warning')
+        return redirect(url_for('lan.index'))
+    # 5 GHz uses an 80 MHz block (vht width=1) with the seg0 index matching the
+    # channel's block; 2.4 GHz ignores these VHT fields in its template.
+    vht_chwidth = 1 if channel in VHT80_SEG0 else 0
+    vht_seg0 = VHT80_SEG0.get(channel, '')
     cfg_dir = '/etc/hostapd'
     os.makedirs(cfg_dir, exist_ok=True)
     cfg_file = os.path.join(cfg_dir, f"{iface}.conf")
     try:
         # Choose template
         tmpl = 'config/hostapd-2g.conf.j2' if hw_mode == 'g' else 'config/hostapd-5g.conf.j2'
-        content = render_template(tmpl, iface=iface, ssid=ssid, hw_mode=hw_mode, wpa_passphrase=wpa_passphrase)
+        content = render_template(tmpl, iface=iface, ssid=ssid, hw_mode=hw_mode,
+                                  wpa_passphrase=wpa_passphrase, channel=channel,
+                                  vht_chwidth=vht_chwidth, vht_seg0=vht_seg0)
         with open(cfg_file, 'w') as f:
             f.write(content)
         flash(f'Configuration for {iface} saved', 'success')
