@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center" style="margin-top: 50px;">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="card-title mb-3">Updating Border0 Router</h2>
+        <div class="progress mb-3">
+          <div id="bar" class="progress-bar progress-bar-striped progress-bar-animated"
+               role="progressbar" style="width: 0%">0%</div>
+        </div>
+        <p id="msg" class="text-muted">Starting…</p>
+        <div id="result"></div>
+        <a href="{{ url_for('auth.system') }}" class="btn btn-secondary mt-2">Back to System</a>
+      </div>
+    </div>
+    <p class="text-muted small mt-2">
+      The web UI restarts itself during the update — this page may briefly show
+      "reconnecting", that's expected. It'll finish on its own.
+    </p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  var DONE = {done: 1, failed: 1};
+  var bar = document.getElementById('bar');
+  var msg = document.getElementById('msg');
+  var result = document.getElementById('result');
+  var reconnecting = false;
+
+  function poll() {
+    fetch("{{ url_for('sysupdate.status') }}", {cache: 'no-store'})
+      .then(function (r) { return r.json(); })
+      .then(function (s) {
+        reconnecting = false;
+        var pct = s.pct || 0;
+        bar.style.width = pct + '%';
+        bar.innerText = pct + '%';
+        msg.innerText = s.msg || s.state || '';
+        if (DONE[s.state]) {
+          bar.classList.remove('progress-bar-animated');
+          if (s.state === 'done') {
+            bar.classList.add('bg-success');
+            result.innerHTML = "<div class='alert alert-success'>" + (s.msg || 'Update complete.') +
+              " Reloading…</div>";
+            setTimeout(function () { window.location = "{{ url_for('auth.system') }}"; }, 2500);
+          } else {
+            bar.classList.add('bg-danger');
+            result.innerHTML = "<div class='alert alert-danger'>" + (s.msg || 'Update failed.') +
+              (s.error ? "<br><small><code>" + s.error + "</code></small>" : "") + "</div>";
+          }
+          return; // stop polling
+        }
+        setTimeout(poll, 2000);
+      })
+      .catch(function () {
+        // webui is probably mid-restart — keep trying.
+        if (!reconnecting) {
+          reconnecting = true;
+          msg.innerText = 'Web UI restarting — reconnecting…';
+        }
+        setTimeout(poll, 2000);
+      });
+  }
+  poll();
+</script>
+{% endblock %}

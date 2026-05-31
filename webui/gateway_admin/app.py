@@ -13,6 +13,7 @@ from .modules.lan.routes import lan_bp
 from .modules.wifi.routes import wifi_bp
 from .modules.vpn.routes import vpn_bp
 from .modules.stats.routes import stats_bp
+from .modules.sysupdate.routes import sysupdate_bp
 
 def create_app():
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -49,5 +50,6 @@ def create_app():
     app.register_blueprint(lan_bp)
     app.register_blueprint(vpn_bp)
     app.register_blueprint(stats_bp)
+    app.register_blueprint(sysupdate_bp)
 
     return app

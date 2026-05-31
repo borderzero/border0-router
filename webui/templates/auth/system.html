@@ -160,7 +160,59 @@
         {% endif %}
       </div>
     </div>
-    <!-- Software Update Card -->
+    <!-- Router Update Card (border0-router web UI + services) -->
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="card-title mb-1">Router Update</h2>
+        <p class="text-muted small mb-3">
+          Updates the Border0 Router software (web UI, network engine, services)
+          from the latest GitHub release. Separate from the Border0 agent below;
+          does not change the OS or kernel.
+        </p>
+        <p class="mb-2"><strong>Current:</strong>
+          {{ image_version.version if image_version and image_version.version else 'unknown (dev build)' }}</p>
+        <div id="ru-result" class="small mb-2"></div>
+        <button id="ru-check" type="button" class="btn btn-secondary">Check for updates</button>
+        <form id="ru-upgrade-form" method="post" action="{{ url_for('sysupdate.start') }}"
+              class="d-inline" style="display:none;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="tag" id="ru-tag" value="">
+          <button type="submit" class="btn btn-primary"
+                  onclick="return confirm('Update the router software now? The web UI will restart.');">
+            Upgrade
+          </button>
+        </form>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var btn = document.getElementById('ru-check');
+        var res = document.getElementById('ru-result');
+        var form = document.getElementById('ru-upgrade-form');
+        var tag = document.getElementById('ru-tag');
+        var up = form.querySelector('button[type="submit"]');
+        btn.addEventListener('click', function () {
+          res.innerHTML = 'Checking…'; btn.disabled = true;
+          fetch("{{ url_for('sysupdate.check') }}", {cache: 'no-store'})
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              btn.disabled = false;
+              if (!d.latest) { res.innerHTML = "<span class='text-warning'>Couldn't reach GitHub.</span>"; return; }
+              if (d.update_available) {
+                res.innerHTML = "<span class='text-success'>Update available: <strong>" + d.latest +
+                  "</strong> (current " + d.current + ")</span>";
+                tag.value = d.latest; up.innerText = 'Upgrade to ' + d.latest; form.style.display = 'inline';
+              } else {
+                res.innerHTML = "<span class='text-success'>Up to date (" + d.current + ").</span>";
+                form.style.display = 'none';
+              }
+            })
+            .catch(function () { btn.disabled = false; res.innerHTML = "<span class='text-danger'>Check failed.</span>"; });
+        });
+      })();
+    </script>
+
+    <!-- Software Update Card (Border0 agent binary) -->
     <div class="card mb-4">
       <div class="card-body">
         <h2 class="card-title mb-3">Software Update</h2>
